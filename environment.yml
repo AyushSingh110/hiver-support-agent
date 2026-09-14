@@ -1,0 +1,23 @@
+# Single conda environment for the whole project.
+#
+#   conda env create -f environment.yml
+#   conda activate hiver
+#
+# Only direct dependencies are pinned. Transitive packages are left to the solver
+# so the environment builds on Linux and macOS as well as Windows. There is
+# deliberately no `prefix:` line — `conda env export` adds one containing a local
+# absolute path, which breaks reproducibility on another machine.
+#
+# Dependencies are added in the phase that needs them, not upfront.
+# Phase 1 (profiling) needs only the three below.
+
+name: hiver
+
+channels:
+  - defaults
+
+dependencies:
+  - python=3.11
+  - pandas=3.0.*
+  - numpy=2.4.*
+  - pyarrow=23.0.*

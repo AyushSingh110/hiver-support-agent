@@ -1,0 +1,28 @@
+# Raw CSV is ~493 MB, over GitHub's 100 MB limit, and git history is permanent.
+# README.md documents how to download it instead.
+data/
+
+# Generated analysis output. Kept locally; README carries the results that matter.
+reports/
+
+# Secrets
+.env
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Environments (the conda env lives in anaconda3/envs, not here,
+# but guard against a stray local venv)
+venv/
+.venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
