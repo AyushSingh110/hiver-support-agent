@@ -1,9 +1,12 @@
 # Taxonomy v2 — AmericanAir support intents
 
-> **Status: proposed, not yet validated.** v2 is a minimal revision of `taxonomy_v1.md`
-> based on the 148-row pilot (see `reports/phase5_pilot_analysis.md`). Its boundaries
-> are being *tested* by the pilot relabelling, not confirmed by it. Nothing here is
-> validated until the golden set is labelled against it.
+> **Status: FROZEN for the golden set — not yet validated.**
+>
+> Frozen and unvalidated are both true and are not the same thing. *Frozen* means the
+> label set and definitions will not change while the golden set is annotated, so
+> labels cannot be tuned to the evaluation. *Not yet validated* means these boundaries
+> were written **after** reading the 148-row pilot, so measuring them on that pilot
+> would be circular. The golden set is their first honest test.
 >
 > **Changes from v1:** 1 intent added, 1 broadened, 7 definitions sharpened.
 > **No intent was merged or removed.**
@@ -149,8 +152,15 @@ a problem resolved.
 Positive words attached to a live complaint → label the underlying issue.
 
 **Closest confusing intent:** `non_support_commentary`.
-**Tie-breaker:** *Is AA's service, staff or experience being evaluated?* Yes → here.
-Merely observing or sharing → 11.
+
+**Tie-breakers, in this order:**
+
+1. **Author identity (apply first).** If the message clearly appears to be authored by
+   American Airlines staff, crew, or an organizational representative rather than a
+   customer, classify it as `non_support_commentary`, **even when it expresses
+   positive sentiment about American Airlines**. See the note under 11.
+2. *Is AA's service, staff or experience being evaluated?* Yes → here. Merely
+   observing or sharing → 11.
 
 ---
 
@@ -180,7 +190,27 @@ route announcements, aviation enthusiasm, neutral observations about flying.
 → 9 or negative → 10.
 
 **Closest confusing intent:** `praise_and_compliment`.
-**Tie-breaker:** *Is there a request or a service judgement?* Neither → here.
+
+**Tie-breakers, in this order:**
+
+1. **Author identity (apply first).** If the message clearly appears to be authored by
+   American Airlines staff, crew, or an organizational representative rather than a
+   customer, classify it as `non_support_commentary`, **even when it expresses
+   positive sentiment about American Airlines**.
+2. *Is there a request or a service judgement?* Neither → here.
+
+**How to apply the author-identity test.** The dataset provides **no author-role
+metadata**, so this is a **textual heuristic** judged from the message itself.
+Self-identifying phrasing is the signal: *"our employees"*, *"privilege to serve"*,
+*"our team"*, first-person plural on AA's behalf. It will miss insiders who do not
+self-identify, and it should not be used to guess at an author's employer from
+enthusiasm alone.
+
+**Why this test exists.** Two pilot messages praise AA warmly but are written from
+inside the company (*"It was a privilege to serve…"*, *"the families of **our**
+employees"*). They are not customer feedback, so treating them as praise would
+pollute an intent meant to capture what customers say about service. Without this
+rule the taxonomy could not reproduce its own final labels for those rows.
 
 **Why added.** `OTHER` was conflating two things needing **opposite** handling:
 genuine long-tail support issues that likely need a human, and social posts that
@@ -225,6 +255,21 @@ request at all but the message is perfectly clear → 11.
 in the **taxonomy**. Keeping them separate is what lets us tell "our categories are
 incomplete" from "this message is uninterpretable".
 
+**Retained deliberately despite low frequency.** After the v2 relabelling, `UNCLEAR`
+stands at **2 of 120 random-stratum rows (1.7%)**, below the 2% threshold that would
+normally flag a label as a merge-or-drop candidate. It is kept anyway, for three
+reasons:
+
+1. A 148-row pilot is **not sufficient evidence** to remove a safeguard.
+2. The drop happened **because v2 worked** — messages that were clear but contained no
+   request moved to `non_support_commentary`, which is exactly the intended effect.
+   Falling frequency here is a success signal, not a redundancy signal.
+3. A taxonomy with no way to say "I cannot tell" will instead say something wrong. The
+   cost of keeping a rarely-used escape hatch is far lower than the cost of forcing
+   uninterpretable messages into a confident label.
+
+Revisit only if the golden set also shows near-zero use.
+
 ---
 
 ## Intents deliberately **not** added in v2
@@ -249,7 +294,8 @@ versus rebooking. The 67% non-high confidence on cancellation in the pilot was a
 | baggage vs booking fees | Is a bag involved? |
 | seating vs boarding | Where you sit, or when you board? |
 | loyalty vs booking fees | The programme/account, or one booking? |
-| praise vs commentary | Is service being evaluated? |
+| **praise vs commentary (first)** | **Is the author a customer, or AA staff/crew?** |
+| praise vs commentary (second) | Is service being evaluated? |
 | dissatisfaction vs OTHER | Is there an actionable issue? |
 | OTHER vs UNCLEAR | Can you tell what they want? |
 | OTHER vs commentary | Is there a support issue at all? |

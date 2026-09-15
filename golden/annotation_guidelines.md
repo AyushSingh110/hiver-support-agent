@@ -1,6 +1,12 @@
 # Annotation guidelines
 
-How to label the pilot batch. Read `taxonomy_v1.md` alongside this.
+How to label a batch. Read **`taxonomy_v2.md`** alongside this — it is the frozen
+label set and its tie-breakers decide every hard case.
+
+> **v2 is frozen.** The labels and definitions will not change while a batch is being
+> annotated, so labels can never be tuned to the evaluation. If you meet a message the
+> taxonomy genuinely cannot handle, use `OTHER` and leave a note — do not invent a
+> label.
 
 **Time estimate:** ~150 messages at 10–20 seconds each, so 30–50 minutes. Take breaks;
 fatigue shows up as label drift, and the test–retest check will find it.
@@ -25,14 +31,14 @@ not break the columns.
 
 | Column | Values | Required |
 | --- | --- | --- |
-| `primary_intent` | one of the 10 intent names, or `OTHER`, or `UNCLEAR` | **yes** |
+| `primary_intent` | one of the **11** intent names, or `OTHER`, or `UNCLEAR` | **yes** |
 | `secondary_intent` | another intent name | only for genuine multi-intent |
-| `confidence` | `high` / `med` / `low` | **yes** |
-| `is_ambiguous` | `y` or blank | when two readings are defensible |
-| `needs_discussion` | `y` or blank | when you want me to look |
+| `confidence` | `high` / `medium` / `low` | **yes** |
+| `is_ambiguous` | `yes` or blank | when two readings are defensible |
+| `needs_discussion` | `yes` or blank | when you want me to look |
 | `notes` | free text | whenever useful, and always with `OTHER` |
 
-Type intent names **exactly** as in `taxonomy_v1.md` (lowercase, underscores). The
+Type intent names **exactly** as in `taxonomy_v2.md` (lowercase, underscores). The
 analysis tool validates spelling and will list anything it does not recognise rather
 than guessing.
 
@@ -81,11 +87,39 @@ reproduce.
 
 ---
 
+## Boundaries and edge cases
+
+### The v2 boundary questions
+
+When two intents both look plausible, these decide it. They are the same rules as in
+`taxonomy_v2.md`.
+
+| Pair | Ask |
+| --- | --- |
+| delay vs cancellation | Still on the original flight? |
+| baggage vs booking fees | Is a bag involved? *(bag wins, even for fees)* |
+| seating vs boarding | Where you sit, or when you board? |
+| loyalty vs booking fees | The programme/account, or one booking? |
+| **praise vs commentary (first)** | **Is the author a customer, or AA staff/crew?** |
+| praise vs commentary (second) | Is service being evaluated? |
+| dissatisfaction vs OTHER | Is there an actionable issue? |
+| OTHER vs commentary | Is there a support issue at all? |
+| OTHER vs UNCLEAR | Can you tell what they want? |
+
+**The author-identity rule, new in v2.** If a message clearly reads as written by AA
+staff, crew or the company itself — *"our employees"*, *"privilege to serve"*, *"our
+team"* — label it `non_support_commentary` **even when it praises AA**. It is not
+customer feedback. This is a **textual heuristic**: the dataset has no author-role
+metadata, so judge only from self-identifying wording, and do not infer someone's
+employer from enthusiasm alone.
+
+---
+
 ## Edge cases
 
 | Situation | Do this |
 | --- | --- |
-| Baggage **fee** complaint | `baggage` + `is_ambiguous = y` (pilot rule; the count decides v2) |
+| Baggage **fee** complaint | `baggage` (v2 rule: bag wins). Flag `is_ambiguous` only if genuinely torn |
 | Praise that also reports a problem | Label the problem; praise is incidental |
 | Pure thanks after a resolved issue | `praise_and_compliment` |
 | Only a mention and a URL, no words | `UNCLEAR` |
@@ -100,19 +134,25 @@ reproduce.
 
 ## What I will do with this
 
-After you return the file I will report, **against thresholds declared before you
-started** (see `docs/DECISION_LOG.md`):
+After you return the file I will report the distribution, confidence spread, and the
+signals below.
 
-| Trigger | Threshold | Action |
+**These thresholds are now quality-review signals, not taxonomy revision triggers.**
+They served as revision triggers during the pilot, when the taxonomy was still a
+candidate. **v2 is frozen**, so crossing one of these no longer changes the label set
+mid-batch — it flags where labelling was hard and what to examine once the batch is
+complete.
+
+| Signal | Threshold | What it now means |
 | --- | --- | --- |
-| `OTHER` rate | > 10% | Taxonomy has a gap — add an intent |
-| Intent share of the random stratum | < 2% | Merge or drop |
-| `low` confidence within an intent | > 30% | Rewrite that definition |
-| Pair co-occurring as primary/secondary | > 15% | Merge candidate |
-| `UNCLEAR` rate | > 15% | Openings alone may be insufficient context |
+| `OTHER` rate | > 10% | Real issues are falling outside the taxonomy — review after the batch |
+| Intent share of the random stratum | < 2% | Rare label; note it, but do not drop on one batch |
+| Non-`high` confidence within an intent | > 30% | That definition is hard to apply in practice |
+| Pair co-occurring as primary/secondary | > 15% | Those two intents overlap in practice |
+| `UNCLEAR` rate | > 15% | Opening messages alone may lack sufficient context |
 
-**I will not change these thresholds after seeing your results.** They exist so
-revision is driven by evidence rather than by whatever makes the numbers look good.
+Any change to the taxonomy that these signals suggest happens **after** a batch is
+finished and is recorded as a decision — never silently, and never mid-annotation.
 
 ---
 
