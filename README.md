@@ -150,6 +150,19 @@ operational issues. Recommendation is minimal revision, not redesign.
 **No agreement score is reported.** One annotator, one pass, so neither inter- nor
 intra-annotator agreement is computable, and none was invented.
 
+**Taxonomy v2 proposed** (`golden/taxonomy_v2.md`): all 12 v1 labels retained,
+`non_support_commentary` added, `loyalty_and_lounge` broadened to cover account
+administration, 7 definitions sharpened. Nothing merged or removed.
+
+The one change that matters: `OTHER` was fusing *long-tail support issues that likely
+need a human* with *social posts that must never be escalated* — a class the
+escalation policy could not have acted on consistently. `inflight_experience` was
+**rejected**: one random-stratum example (0.8%) is not a category.
+
+**v2 is unvalidated.** Its definitions were written after reading the pilot, so
+measuring them on those same rows would be circular. The golden set is its first
+honest test. 22 of 148 pilot rows await human relabelling.
+
 `golden/` is the one directory tracked in Git rather than ignored — hand labels are
 the only artifact in this project that cannot be regenerated from code. Golden labels
 are used for **evaluation only**: never for training, retrieval, prompt examples or

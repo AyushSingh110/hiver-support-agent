@@ -1649,3 +1649,108 @@ question). The pilot gives 8 random examples — too few to support a split.
 
 Joint review of the five proposals, then either freeze v1 or author v2. **No
 classifier, retrieval, generation or escalation work until that is settled.**
+
+---
+
+## Phase 5e — Taxonomy v2 and the relabel queue
+
+**Date:** 2026-09-15
+**Status:** v2 authored. Awaiting human relabelling of 22 pilot rows.
+**Objective:** Apply the approved minimal revision and identify which pilot rows need
+reconsideration. **No label changed automatically.**
+
+### b01_0066 resolved first
+
+The annotator corrected the text and relabelled it. Verification against the Phase 2
+source now returns **148/148 exact matches, zero mismatches** — including both U+2019
+curly apostrophes. I also confirmed nothing else moved: recomputing the 147
+previously-analysed rows gives **identical** intent counts, ambiguity (36) and
+discussion (68) totals. Only `b01_0066` changed.
+
+Root cause, found while gathering evidence: the corrupted cell was a **copy of
+`b01_0043`'s text** with a lowercased first letter. That lowercase is why my original
+exact-match search against the blank batch found nothing and I could not initially
+explain where the text came from. `b01_0043` itself was never affected.
+
+### What v2 changes
+
+| | |
+| --- | --- |
+| v1 labels retained | **12 of 12** |
+| Added | 1 (`non_support_commentary`) |
+| Broadened | 1 (`loyalty_and_lounge`) |
+| Definitions sharpened | 7 |
+| Merged or removed | **0** |
+
+### The one change that actually matters
+
+`OTHER` was holding two classes with **opposite** correct actions:
+
+- *"your customer complaint form is broken, where can I mail a letter?"* — a real
+  issue, probably needs a human
+- *"Amazing view of today's sunset"* — a social post, must never be escalated
+
+Phase 12's escalation policy would have inherited a class it cannot act on
+consistently. Splitting them is a workflow distinction, not a cosmetic one — which is
+the stated bar for adding a category.
+
+A second, subtler finding: four rows labelled `UNCLEAR` — *"Flying @AmericanAir !"*,
+*"happy snowy day at ORD!"*, two lounge check-ins — are not unclear at all. They are
+perfectly comprehensible messages that simply contain **no request**. v2 separates
+"I can't understand this" from "there's nothing to do here".
+
+### What I declined to add
+
+**`inflight_experience`.** Obvious airline category, easy to add on intuition. But the
+pilot gives **one** random-stratum example (0.8%), below the 2% threshold; the other
+three keyword hits already belong elsewhere. One example is not a category. `b01_0099`
+goes to `OTHER`, which is what a residual class is for.
+
+**A merged `flight_disruption`.** The 67% non-high confidence on
+`flight_cancellation_rebooking` is real, but it is a *definition* problem, not
+evidence the category is wrong — v1 gave no rule for a delay that *causes* a missed
+connection. v2 adds that rule. Merging would erase a genuine action difference
+(information vs rebooking) to improve a metric.
+
+### Relabel queue — 22 of 148 (14.9%)
+
+| Reason | Rows |
+| --- | --- |
+| New commentary intent absorbs rows from `OTHER` | 6 |
+| New commentary intent absorbs rows from `UNCLEAR` | 4 |
+| `praise` vs `commentary` boundary now explicit | 4 |
+| `general_dissatisfaction` sharpened | 3 |
+| `UNCLEAR` sharpened (message clear, no request) | 2 |
+| `loyalty_and_lounge` broadened | 1 |
+| `OTHER` sharpened (real issue parked in `UNCLEAR`) | 1 |
+| Already corrected; confirmation only | 1 |
+
+**6 of the 22 are marked BORDERLINE or CONFIRM.** v2 does not resolve those — it only
+makes the question askable. The remaining 126 rows are unaffected.
+
+An unexpected find: two `praise_and_compliment` rows look like **AA insider posts**
+rather than customer praise — `b01_0052` (*"It was a privilege to serve…"*) and
+`b01_0115` (*"families of **our** employees"*). The sharpened praise test
+("is the customer evaluating AA's service?") surfaced them.
+
+### Why the pilot cannot validate v2
+
+v2's definitions were written **after** reading these 148 rows. Measuring them on the
+same rows would be circular — rules tuned on a sample always look good on that
+sample. Post-relabelling pilot numbers are therefore **not** evidence that v2 works.
+The golden set is its first honest test. Recorded as D38.
+
+### Verification
+
+| Check | Result |
+| --- | --- |
+| Golden CSV modified | **No** — SHA-256 recorded, 148 rows, `b01_0066` as the annotator set it |
+| `taxonomy_v1.md` modified | No |
+| Phase 1-4 source modified | No |
+| Labels changed automatically | **None** |
+| Old analyser run | **Not run** — its validator still uses v1 vocabulary and would reject `non_support_commentary` |
+
+### Next step
+
+Human review of the 22 queue rows. Then freeze v2, update the analyser's valid-label
+set, re-run the pilot analysis, and only then draw the golden set.

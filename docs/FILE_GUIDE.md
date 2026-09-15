@@ -377,7 +377,10 @@ reports deliberately avoid dumping full tweet text.
 | File | Nature |
 | --- | --- |
 | `reports/phase4_candidate_taxonomy.md` | **Hand-written.** Not produced by any script. The human-interpretation layer, kept separate so an authored judgement is never mistaken for a computed result. Marked UNVALIDATED. See D26. |
-| `golden/taxonomy_v1.md` | **Hand-written.** Candidate taxonomy frozen for the pilot. Not final |
+| `golden/taxonomy_v1.md` | **Hand-written.** Candidate taxonomy used for the pilot. Superseded by v2; kept as the historical record of what the pilot was actually labelled against |
+| `golden/taxonomy_v2.md` | **Hand-written.** Minimal revision: 12 v1 labels retained, `non_support_commentary` added, `loyalty_and_lounge` broadened, 7 definitions sharpened. **Unvalidated** — see D38 |
+| `reports/phase5_v2_relabel_queue.csv` | **Hand-authored proposals** joined to real excerpts. 22 rows needing human reconsideration under v2. `proposed_primary_intent` is a suggestion, never a decision |
+| `reports/phase5_v2_impact.md` | **Hand-written.** What v2 changes and why each contested call went the way it did |
 | `golden/annotation_guidelines.md` | **Hand-written.** Labelling rules and pre-declared revision triggers |
 | `golden/README.md` | **Hand-written.** Why `golden/` is tracked in Git and how labels may be used |
 | `golden/b01_pilot_labelled.csv` | **Written by the annotator.** No code writes to this path |

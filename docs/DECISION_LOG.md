@@ -885,4 +885,94 @@ limitation rather than filled with a proxy.
 
 ---
 
+## D35 — Taxonomy v2: minimal revision, one addition, nothing removed
+
+**Problem:** The pilot fired two of five pre-declared triggers. Options were freeze,
+minimally revise, or redesign.
+
+**Chosen:** Minimal revision. **All 12 v1 labels retained**, one intent added
+(`non_support_commentary`), one broadened (`loyalty_and_lounge`), seven definitions
+sharpened. No merges, no removals.
+
+**Why not freeze:** `b01_0123` (*"Got married, need to change my last name on my
+AAdvantage"*) is an unambiguous actionable request that v1 had no home for, purely
+because the definition stopped at "miles, elite status, lounge access". And `OTHER`
+was fusing classes with opposite correct actions (below).
+
+**Why not redesign:** 10 of 12 labels worked. `baggage` was flawless — 0% non-high
+confidence across 9 examples. Redesign would discard sound work to chase a metric.
+
+**Tradeoff:** 22 of 148 pilot rows (14.9%) need human reconsideration.
+
+**Consequence:** `golden/taxonomy_v2.md`, with the pilot relabel queue in
+`reports/phase5_v2_relabel_queue.csv`. Not validated — see D38.
+
+---
+
+## D36 — `non_support_commentary` added for a workflow reason, not to shrink `OTHER`
+
+**Problem:** `OTHER` sat at 11.8%, above its 10% trigger. The obvious move — invent a
+category to absorb it — was explicitly ruled out in advance.
+
+**Alternatives:** (a) leave `OTHER` alone; (b) add a catch-all; (c) extract only the
+part of `OTHER` that is genuinely a different *kind* of thing.
+
+**Chosen:** (c).
+
+**Why:** `OTHER` was holding two classes whose correct downstream action is
+**opposite**: genuine long-tail support issues that probably need a human (*"your
+complaint form is broken, where do I mail a letter"*) and social posts that must never
+be escalated (*"Amazing view of today's sunset"*). Phase 12's escalation policy would
+have inherited a class it could not act on consistently.
+
+That is a workflow distinction, which is the stated bar for a category. Evidence:
+**9 clear random-stratum examples (~7.6%)**, the same share as `baggage`, with a
+testable definition (*no request, no service judgement*) and a clean tie-breaker
+against `praise_and_compliment`.
+
+**Tradeoff:** Thinnest evidence base of any category, and a praise/commentary boundary
+that will still produce disagreement.
+
+**Consequence:** `OTHER` is projected to fall below its trigger **because a real class
+was extracted**, not because a catch-all absorbed the tail. The remaining rows stay
+`OTHER`, correctly.
+
+---
+
+## D37 — `inflight_experience` rejected on the evidence that was there
+
+**Problem:** WiFi and cabin-comfort complaints have no home. It is an obvious airline
+category and easy to add on intuition.
+
+**Chosen:** Do not add.
+
+**Why:** **One** random-stratum example (0.8%), below the pre-declared 2% threshold.
+The three other keyword hits already belong elsewhere — one praise, one baggage
+voucher, one loyalty. One example is not a category; adding it would be inventing a
+class from domain intuition rather than data, which is exactly what this project
+keeps trying not to do.
+
+**Consequence:** `b01_0099` goes to `OTHER`, which is what a residual class is for. If
+the golden set shows a real rate, add it then with evidence.
+
+---
+
+## D38 — v2 boundaries are tested by the pilot, not validated by it
+
+**Problem:** v2's definitions were written **after** reading the 148 pilot rows.
+Measuring them on those same rows would be circular and would produce a flattering,
+meaningless number.
+
+**Chosen:** State plainly that v2 is **unvalidated**, and treat the golden set as its
+first honest test.
+
+**Why:** Definitions tuned on a sample will always look good on that sample. Reporting
+a post-relabelling pilot accuracy as evidence that v2 "works" would be measuring how
+well the rules fit the cases used to write them.
+
+**Consequence:** The impact report carries this limitation explicitly, and the
+projected distributions are labelled projections from proposals, not results.
+
+---
+
 *Further decisions are appended as later phases are implemented.*
