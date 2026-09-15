@@ -1333,3 +1333,123 @@ A decision is needed before proceeding: accept a taxonomy authored from term
 evidence, or invest in embeddings to get a better partition. The evidence for that
 decision is in `reports/phase4_intent_discovery.md` and D25. I have deliberately not
 chosen.
+
+---
+
+## Phase 5a/5b — Annotation tooling and candidate taxonomy
+
+**Date:** 2026-09-15
+**Status:** Complete. Waiting for human labels before 5c.
+**Objective:** Build the sampling tool, guidelines and candidate taxonomy so the
+pilot batch can be labelled by hand. **No labels generated.**
+
+### What I built
+
+| File | Purpose |
+| --- | --- |
+| `src/build_annotation_batch.py` | Draws a stratified sample, writes a blank CSV |
+| `golden/taxonomy_v1.md` | Candidate taxonomy, frozen for the pilot only |
+| `golden/annotation_guidelines.md` | Labelling rules, edge cases, pre-declared triggers |
+| `golden/README.md` | Why this directory is tracked and how labels may be used |
+| `golden/b01_pilot_blank.csv` | 148 messages, all label columns empty |
+
+### The sample
+
+Population **24,239** customer-rooted AmericanAir openings — reconciles exactly with
+Phase 3, so no definition drifted.
+
+| Stratum | Drawn | Purpose |
+| --- | --- | --- |
+| `random` | 120 | Uniform, month-proportional. **The only honest frequency estimate** |
+| `targeted` | 28 | Keyword-probed so rare intents appear at all. Deliberately unrepresentative |
+
+Month spread of the random stratum: Oct 59, Nov 56, Dec 5 — against a population of
+48.9% / 47.2% / 4.5%. Close, as intended.
+
+**28 rather than 30 targeted:** the quota divides evenly across four probes as
+7 each. A trivial shortfall, reported rather than padded, since topping it up would
+have meant over-drawing from one probe and quietly biasing the stratum.
+
+**Sampling is not based on Phase 4 clusters.** The probes come from *term* evidence,
+which held up; cluster membership did not (ARI 0.37). Recorded as D28.
+
+### The guarantee that matters: no automatic labels
+
+This is the point of the phase, so it is enforced in code rather than promised:
+
+- Blank batches are written with **every label column empty**, and there is no code
+  path that fills them.
+- The writer **refuses any path ending `_labelled.csv`**.
+- It **refuses to overwrite an existing blank batch**.
+- No LLM is imported or called anywhere in this phase.
+
+**Both guards were tested, not assumed:**
+
+```text
+TEST 1  re-run on an existing batch
+        -> FileExistsError: ... already exists. Delete it deliberately if you
+           intend to redraw; regenerating would change which messages you are
+           asked to label.
+
+TEST 2  simulated labelled file present
+        -> 24,091 available (148 already labelled, excluded)
+```
+
+24,239 - 148 = 24,091, so the exclusion logic that keeps future batches disjoint
+works.
+
+### Verification of the blank batch
+
+| Check | Result |
+| --- | --- |
+| Rows / columns | 148 / 12 |
+| **All label columns empty** | **True** (0 non-empty cells of 888) |
+| `annotation_id` unique | yes |
+| `conversation_id` unique | yes |
+| Empty text rows | 0 |
+| Embedded newlines surviving into CSV | 0 |
+| Text survives the write/read round trip | yes |
+| Population vs Phase 3 | 24,239 == 24,239 |
+
+### Practical details that matter more than they look
+
+**`utf-8-sig` encoding.** Plain UTF-8 makes Excel on Windows mangle emoji, and this
+corpus is full of them. The BOM fixes it. An annotator fighting mojibake produces
+worse labels.
+
+**`QUOTE_ALL`.** Tweets contain commas, quotes and hashes. Unquoted fields would
+silently shift columns and corrupt the labels.
+
+**Newlines collapsed to ` / ` in `text_display`.** A tweet with a newline becomes two
+rows in a spreadsheet otherwise, which breaks labelling. The original text is
+untouched in `conversation_turns.parquet` and joinable on `conversation_id`, so
+nothing is lost — this is a rendering, not an edit.
+
+### `OTHER` vs `UNCLEAR`
+
+Kept deliberately separate. `OTHER` means "a real intent the taxonomy lacks" — a gap,
+and the most valuable signal the pilot can produce. `UNCLEAR` means "I cannot tell
+what they want" — a property of the message. Collapsing them would hide the taxonomy
+gap inside message noise.
+
+### Revision triggers, declared before labelling
+
+Fixed in advance so revision cannot be fitted to the results: `OTHER` > 10%; intent
+< 2% of the random stratum; `low` confidence > 30% within an intent; primary/secondary
+pair > 15%; `UNCLEAR` > 15%. Recorded as D29. **These will not be changed after
+seeing the labels.**
+
+### Limitations
+
+- One annotator, so §9's reliability measure is intra-annotator test-retest, **not**
+  inter-annotator agreement. Self-agreement is an upper bound on reliability.
+- Keyword probes are a lexical bias by construction — hence the stratum flag.
+- The taxonomy is a candidate built on weak clustering evidence; the pilot exists
+  precisely to test whether it survives contact with real messages.
+- Opening messages only; issues that emerge later in a conversation are invisible.
+
+### Next step
+
+**Waiting on human labels.** Nothing further runs until `b01_pilot_labelled.csv`
+exists. Stage 5d (analysis) is written only after the labels are returned, so it
+cannot be shaped by knowledge of them.

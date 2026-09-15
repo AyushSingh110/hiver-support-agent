@@ -7,6 +7,9 @@ data/
 # Generated analysis output. Kept locally; README carries the results that matter.
 reports/
 
+# NOTE: golden/ is deliberately NOT ignored. Hand-written labels are the one
+# artifact in this project that cannot be regenerated from code.
+
 # Secrets
 .env
 *.key

@@ -290,11 +290,58 @@ centroids or a dominant cluster. `--k` overrides it. K is ultimately a human cal
 
 ---
 
-## Reports that are hand-authored, not generated
+### `src/build_annotation_batch.py` 🔴
+
+**Purpose:** Phase 5a. Draw a stratified sample of AmericanAir opening messages and
+write a **blank** CSV for manual labelling.
+
+**Inputs:** `data/processed/conversations.parquet`,
+`data/processed/conversation_turns.parquet`.
+
+**Outputs:** `golden/b01_pilot_blank.csv`,
+`reports/phase5_b01_sampling_manifest.json`.
+
+**Dependencies:** pandas, numpy, pyarrow, `src.config`. **No sklearn, no LLM.**
+
+#### Functions that matter
+
+**`sample_random_stratified` 🔴 — the honest half of the sample.**
+Uniform random, allocated **month-proportionally**. AmericanAir's traffic is 99.8%
+concentrated in Oct-Dec 2017, so without this one busy week could dominate. This
+stratum alone supports frequency estimates.
+
+**`sample_targeted` 🔴 — the deliberately biased half.**
+Keyword probes guarantee rare intents appear; pure random might return zero
+`loyalty_and_lounge`. Probes come from Phase 4 **term** evidence, never from cluster
+assignments (D28). Drawn *after* the random pool and excluding it, so the strata never
+overlap. Rows are flagged `targeted` and excluded from frequency claims.
+
+**`main`'s guard clauses 🔴 — the "no automatic labels" guarantee.**
+Refuses any path ending `_labelled.csv`; refuses to overwrite an existing blank batch.
+Both tested, not assumed. This is where the promise becomes a property of the code.
+
+**`verify_blank_batch` 🟡.** Re-reads the written file and asserts every label column
+is empty, IDs are unique, no text is lost, and the text survives the CSV round trip.
+Catches encoding and quoting damage before a human wastes time on a corrupted file.
+
+**`build_rows` 🟡.** Note `text_display` collapses newlines to ` / ` so one message
+occupies one spreadsheet row. This is a **rendering, not an edit** — the original is
+untouched in Parquet and joinable on `conversation_id`.
+
+---
+
+## Hand-authored files, not generated
 
 | File | Nature |
 | --- | --- |
 | `reports/phase4_candidate_taxonomy.md` | **Hand-written.** Not produced by any script. The human-interpretation layer, kept separate so an authored judgement is never mistaken for a computed result. Marked UNVALIDATED. See D26. |
+| `golden/taxonomy_v1.md` | **Hand-written.** Candidate taxonomy frozen for the pilot. Not final |
+| `golden/annotation_guidelines.md` | **Hand-written.** Labelling rules and pre-declared revision triggers |
+| `golden/README.md` | **Hand-written.** Why `golden/` is tracked in Git and how labels may be used |
+| `golden/b01_pilot_labelled.csv` | **Written by the annotator.** No code writes to this path |
+
+`golden/` is the one directory deliberately **not** gitignored — hand labels cannot
+be regenerated from code. See D27.
 
 ---
 

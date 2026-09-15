@@ -686,4 +686,98 @@ open questions, so no later phase can mistake it for a validated result.
 
 ---
 
+## D27 — `golden/` is tracked in Git; everything else generated is not
+
+**Problem:** `data/` and `reports/` are gitignored because they regenerate from code.
+Hand labels do not.
+
+**Chosen:** Track `golden/` in full, with an explicit note in `.gitignore` saying so.
+
+**Why:** These labels are produced by a person reading messages one at a time. Lose
+them and they cannot be recreated — not by re-running code, not by an LLM, not from
+the raw data. They are the only artifact the entire evaluation ultimately rests on.
+A few hundred KB is a trivial price.
+
+**Tradeoff:** Breaks the otherwise clean "generated output is ignored" rule, so the
+exception is documented in `.gitignore` and `golden/README.md` rather than left to be
+inferred.
+
+**Consequence:** A fresh clone has the evaluation data. Everything else rebuilds.
+
+---
+
+## D28 — Two sampling strata, reported separately and never merged
+
+**Problem:** A pure random sample of 150 gives an honest class distribution but may
+contain zero examples of a 1-2% intent. Stratifying everything by expected intent
+destroys the ability to state real frequencies.
+
+**Alternatives:** (a) pure random; (b) stratify by Phase 4 cluster; (c) two labelled
+strata.
+
+**Chosen:** (c). ~120 `random` (uniform, month-proportional) plus ~30 `targeted`
+(keyword-probed for rare intents). Every row carries `sampling_stratum`.
+
+**Why (b) was rejected outright:** sampling from Phase 4 cluster assignments would
+inherit a partition measured to be unreliable — 16.56% explained variance, silhouette
+0.04, ARI 0.37 (D25). The keyword probes come from *term* evidence, which held up,
+not from cluster membership, which did not.
+
+**Month-proportional** because AmericanAir's traffic is 99.8% concentrated in
+Oct-Dec 2017; without it one busy week could dominate the batch. Realised split
+59/56/5 against a population of 48.9%/47.2%/4.5%.
+
+**Tradeoff:** The targeted stratum is deliberately unrepresentative. Quoting a
+combined frequency would be wrong, so frequencies come from the `random` stratum only
+and every report states which stratum it used.
+
+**Consequence:** Honest frequency estimates *and* minority-intent coverage, without
+one corrupting the other.
+
+---
+
+## D29 — Revision triggers declared before any label exists
+
+**Problem:** Deciding what counts as "the taxonomy needs changing" *after* seeing
+results invites fitting the story to the data.
+
+**Chosen:** Five thresholds fixed in `annotation_guidelines.md` and here, before the
+annotator started: `OTHER` > 10% means a gap; an intent under 2% of the random
+stratum is a merge-or-drop candidate; over 30% `low` confidence within an intent
+means its definition is unclear; a primary/secondary pair co-occurring above 15% is a
+merge candidate; `UNCLEAR` above 15% means openings alone lack context.
+
+**Why:** Pre-registration is the cheapest defence against post-hoc rationalisation,
+and it lets the annotator see the rules they are feeding.
+
+**Tradeoff:** A threshold may prove badly calibrated. If so, that is reported as a
+finding rather than quietly adjusted.
+
+**Consequence:** Taxonomy v2 changes will each cite the trigger that fired.
+
+---
+
+## D30 — Human labels protected structurally, not by convention
+
+**Problem:** "The tool will not overwrite your work" is worth nothing unless the code
+enforces it.
+
+**Chosen:** Three enforced properties: the writer refuses any path ending
+`_labelled.csv`; it refuses to overwrite an existing blank batch; the analysis side
+opens labelled files read-only. Blank batches ship with every label column empty and
+there is no code path that fills them. No LLM is imported or called anywhere in this
+phase.
+
+**Why:** The failure mode is silent and unrecoverable — a re-run clobbering an hour
+of manual labelling, or an auto-filled default quietly becoming "ground truth".
+
+**Verification:** Both guards were tested. Re-running raised `FileExistsError` with a
+message explaining the consequence; a simulated labelled file correctly reduced the
+available population from 24,239 to 24,091.
+
+**Consequence:** The "no automatic labels" guarantee is a property of the code, not a
+promise in a document.
+
+---
+
 *Further decisions are appended as later phases are implemented.*

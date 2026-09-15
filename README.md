@@ -136,6 +136,16 @@ unvalidated.
 Next decision: accept a vocabulary-derived taxonomy, or invest in embeddings for a
 better partition. Evidence in `docs/DECISION_LOG.md` D25.
 
+**Validation in progress.** A 148-message pilot batch (120 random + 28 targeted) is
+awaiting manual labelling in `golden/`. The candidate taxonomy is frozen as
+`golden/taxonomy_v1.md` and revision triggers were declared *before* labelling began,
+so changes will be evidence-driven rather than fitted to the results.
+
+`golden/` is the one directory tracked in Git rather than ignored — hand labels are
+the only artifact in this project that cannot be regenerated from code. Golden labels
+are used for **evaluation only**: never for training, retrieval, prompt examples or
+threshold tuning.
+
 ```
 Raw tweets (2.81M)
     -> Conversation reconstruction   [done]  798,197 components, 741,110 clean
