@@ -250,6 +250,40 @@ def write_exclusion_list(golden: pd.DataFrame, path: Path) -> int:
     return len(golden)
 
 
+def write_customer_exclusion_list(golden: pd.DataFrame, extra_conversations: int, path: Path) -> list[str]:
+    customers = sorted({c for c in golden["customer_author_id"].dropna() if str(c).strip()})
+    lines = [
+        "# Golden-set CUSTOMER exclusion list - Phase 5",
+        "#",
+        "# One customer_author_id per line. These are the customers who wrote the 248",
+        "# golden evaluation examples.",
+        "#",
+        "# This is SEPARATE from golden/golden_exclusion_ids.txt, which lists",
+        "# conversation_id values. Both layers should be applied:",
+        "#   1. conversation-level - removes the golden conversations themselves",
+        "#   2. customer-level     - removes OTHER conversations by the same people",
+        "#",
+        "# Why: these customers wrote a further " + str(extra_conversations) + " conversations that are",
+        "# not in the golden set. Letting those into a development corpus would let the",
+        "# system learn from, or retrieve, the same person's other messages - same voice,",
+        "# sometimes the same ongoing issue.",
+        "#",
+        "# Usage:",
+        "#   customers = {l.strip() for l in open(path) if l.strip() and not l.startswith('#')}",
+        "#   corpus = corpus[~corpus['customer_author_id'].isin(customers)]",
+        "#",
+        "# Cost: roughly 0.9% of the conversation population. Conservative by design.",
+        "#",
+        "# Limitation: author_id values are anonymised pseudonyms. One person using two",
+        "# accounts is undetectable, so this does not guarantee person-level separation.",
+        "#",
+        f"# customers: {len(customers)}",
+    ]
+    lines += customers
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return customers
+
+
 def distribution(frame: pd.DataFrame, column: str = "primary_intent") -> dict:
     return frame[column].value_counts().sort_index().to_dict()
 
@@ -332,9 +366,68 @@ def render_report(stats: dict) -> str:
         f"| near-duplicate (Jaccard >= {leak['near_duplicate_threshold']}) | **{leak['near_duplicate_overlap_count']}** |",
         f"| exclusion-list coverage | {stats['exclusion_list_rows']} / 248 |",
         "",
-        "**No golden example was removed because of leakage.** Overlaps are reported and "
-        "handled downstream by `golden/golden_exclusion_ids.txt`, which removes the whole "
-        "conversation from any training, retrieval, prompt or tuning set.",
+        "**No golden example was removed because of leakage.** The golden set remains "
+        "exactly 248 rows. Overlaps are handled downstream by exclusion, never by "
+        "deleting evaluation data.",
+        "",
+        "## Two-layer exclusion mechanism",
+        "",
+        "Both layers must be applied to any development corpus.",
+        "",
+        "| Layer | File | Key | Removes |",
+        "| --- | --- | --- | --- |",
+        "| 1. Conversation | `golden/golden_exclusion_ids.txt` | `conversation_id` | "
+        f"the {stats['exclusion_list_rows']} golden conversations themselves |",
+        "| 2. Customer | `golden/golden_customer_exclusion_ids.txt` | `customer_author_id` | "
+        f"the further {leak['conversations_sharing_a_golden_customer']} conversations written by the "
+        f"same {stats['customer_exclusion_count']} people |",
+        "",
+        "```python",
+        "conv = {l.strip() for l in open('golden/golden_exclusion_ids.txt')",
+        "        if l.strip() and not l.startswith('#')}",
+        "cust = {l.strip() for l in open('golden/golden_customer_exclusion_ids.txt')",
+        "        if l.strip() and not l.startswith('#')}",
+        "corpus = corpus[~corpus['conversation_id'].isin(conv)",
+        "                & ~corpus['customer_author_id'].isin(cust)]",
+        "```",
+        "",
+        "**Why customer-level exclusion was added.** "
+        f"{stats['customer_exclusion_count']} golden customers wrote "
+        f"{leak['conversations_sharing_a_golden_customer']} additional conversations that are not in "
+        "the golden set. Leaving those in a development corpus would let the system train on "
+        "or retrieve the same person's other messages — same voice, sometimes the same "
+        "ongoing issue. It is a mild but real leak.",
+        "",
+        "**Cost:** roughly **0.9%** of the conversation population. This is a deliberately "
+        "conservative measure: it will remove some legitimate development examples written "
+        "by those customers, and that trade is accepted for a cleaner evaluation.",
+        "",
+        "**What it still cannot do.** `author_id` values are anonymised pseudonyms with no "
+        "identity resolution, so one human operating two accounts is undetectable. "
+        "Customer-level exclusion reduces leakage; it does not guarantee person-level "
+        "separation.",
+        "",
+        "### Neither layer catches the cross-customer duplicate",
+        "",
+        "One near-duplicate was found, and it demonstrates the limit of ID-based exclusion:",
+        "",
+        "| | |",
+        "| --- | --- |",
+        "| Golden | `b01_0019` / `conv_1295943` / customer `422918` |",
+        "| Text | *\"I'm at American Airlines Admirals Club - @americanair in Miami, FL [URL]\"* |",
+        "| Population | `conv_1584861` / customer `487666` |",
+        "| Text | same after URL removal |",
+        "| Jaccard | **1.0** |",
+        "",
+        "Two **different customers** posted the same check-in template. The conversation IDs "
+        "differ and the customer IDs differ, so **neither exclusion layer removes it**. "
+        "`b01_0019` is deliberately left in the golden set unchanged.",
+        "",
+        "The downstream corpus builder must therefore run a **near-duplicate text check** "
+        "against the golden set as a third filter, and drop population conversations whose "
+        "normalised text matches a golden example at Jaccard >= 0.8. This case is the "
+        "evidence that conversation-level and customer-level exclusion alone are not "
+        "sufficient.",
         "",
     ]
     if leak["near_duplicate_overlap"]:
@@ -427,6 +520,12 @@ def main() -> int:
     golden_path = GOLDEN_DIR / "golden_set_v1.csv"
     golden.to_csv(golden_path, index=False, encoding="utf-8-sig")
     exclusion_rows = write_exclusion_list(golden, GOLDEN_DIR / "golden_exclusion_ids.txt")
+    leakage = leakage_report(golden, population)
+    customers = write_customer_exclusion_list(
+        golden,
+        leakage["conversations_sharing_a_golden_customer"],
+        GOLDEN_DIR / "golden_customer_exclusion_ids.txt",
+    )
 
     source = population.set_index("conversation_id")
     truth = golden["conversation_id"].map(source["text"]).fillna("").map(display_form)
@@ -467,7 +566,9 @@ def main() -> int:
         "batch_validation": batch_checks,
         "integrity": integrity,
         "exclusion_list_rows": exclusion_rows,
-        "leakage": leakage_report(golden, population),
+        "customer_exclusion_count": len(customers),
+        "customer_exclusion_covers_all_golden": len(customers) == golden["customer_author_id"].nunique(),
+        "leakage": leakage,
     }
 
     config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -479,7 +580,8 @@ def main() -> int:
     )
 
     print(f"Golden set : {golden_path} ({len(golden)} rows)")
-    print(f"Exclusions : {GOLDEN_DIR / 'golden_exclusion_ids.txt'} ({exclusion_rows} ids)")
+    print(f"Exclusions : {GOLDEN_DIR / 'golden_exclusion_ids.txt'} ({exclusion_rows} conversations)")
+    print(f"Customers  : {GOLDEN_DIR / 'golden_customer_exclusion_ids.txt'} ({len(customers)} customers)")
     print(f"Report     : {config.REPORTS_DIR / 'phase5_golden_set_validation.md'}")
     return 0
 
