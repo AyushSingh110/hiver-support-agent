@@ -65,8 +65,26 @@ can be deleted and regenerated without changing any result.
 
 ## 6. Conversation reconstruction
 
-*(Phase 2–3. Not started.)* Phase 1 established the facts it depends on — see
-**Key findings** below.
+**Done.** Reply links become conversations by following `in_response_to_tweet_id`
+only; components are found by pointer doubling; turns are ordered by `created_at`.
+
+| Status | Conversations | Tweets |
+| --- | --- | --- |
+| `clean` (1 customer + 1 brand) | **741,110** (92.85%) | 2,360,317 (83.94%) |
+| `multi_customer` | 54,642 | 437,899 |
+| `multi_brand` | 2,358 | 13,351 |
+| `no_customer` | 87 | 207 |
+
+Clean conversations: median 2 turns, mean 3.18. All 798,197 components are kept and
+classified — downstream phases choose which statuses to use.
+
+**Broadcasts are excluded by participant structure, not a fan-out threshold.** A
+support interaction is a dyad; the largest component is an outage notice with 973
+distinct authors. A fan-out rule would have been worse than useless here: replies
+under high fan-out tweets are *more* likely to develop into real exchanges (78.8% vs
+a 48.0% baseline), so a threshold would have deleted genuine support.
+
+Reconstruction runs in ~1 minute and is byte-for-byte deterministic.
 
 ## 7. Intent taxonomy
 

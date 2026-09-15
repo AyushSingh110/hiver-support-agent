@@ -1,5 +1,7 @@
 # Raw CSV is ~493 MB, over GitHub's 100 MB limit, and git history is permanent.
 # README.md documents how to download it instead.
+# Covers data/raw (immutable source), data/interim (Phase 1 cache) and
+# data/processed (Phase 2 conversations) - all regenerable from src/.
 data/
 
 # Generated analysis output. Kept locally; README carries the results that matter.

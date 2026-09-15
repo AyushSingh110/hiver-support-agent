@@ -811,7 +811,7 @@ Runtime was 2.15 minutes, in line with the 2.05–2.08 minutes before the cleanu
 Raw data re-checked afterwards: still `-r--r--r--`, still 516,508,641 bytes, still
 dated 2019-09-21.
 
-### Note on `docs/` in `.gitignore`
+### Note on `docs/` in `.gitignore` (Phase 1.5)
 
 Part-way through this phase `docs/` was briefly added to `.gitignore` alongside
 `reports/`, and then removed again. The documentation directory **is** tracked in
@@ -819,3 +819,211 @@ the final state, which is the right outcome: the assignment treats evidence and
 reasoning as first-class deliverables, and the decision log is usually the document
 an interviewer finds most interesting. `reports/` stays ignored because it is
 regenerable output; `docs/` is hand-written source material and is not.
+
+---
+
+## Phase 2 — Conversation reconstruction
+
+**Date:** 2026-09-15
+**Status:** Complete
+**Objective:** Turn tweet-level reply links into conversation structures later phases
+can use. No brand chosen, no AI agent built.
+
+### What I built
+
+`src/reconstruct.py`, run as `python -m src.reconstruct --source sample|full`.
+
+The flow is deliberately linear: load the Phase 1 cache, build a parent array, find
+roots, classify participants, build IDs, order turns, compute conversation stats,
+validate, write, report.
+
+### Design investigation before writing any code
+
+I ran read-only probes first, because two design questions could not be answered by
+guessing. Both answers changed the plan.
+
+**Investigation 1 — fan-out is not what Phase 1 implied.**
+
+Phase 1 counted "children" from `response_tweet_id`. Recounting from parent edges
+that actually resolve:
+
+| Measure | via `response_tweet_id` | via real parent edges |
+| --- | --- | --- |
+| Tweets with 50+ replies | 472 | **62** |
+| Maximum fan-out | 1,755 | **844** |
+
+Neither number is wrong. They measure different things: *declared* children versus
+*resolvable* children. Most declared replies are simply not in the dataset. See D20 —
+both figures are preserved rather than one overwriting the other.
+
+**Investigation 2 — fan-out is the wrong signal entirely.**
+
+I expected replies under broadcast tweets to be dead ends. The opposite is true:
+
+| Hub fan-out | Replies that get their own reply |
+| --- | --- |
+| baseline (1-4 children) | 48.0% |
+| >= 10 | 78.8% |
+| >= 50 | 78.4% |
+
+A fan-out threshold would have deleted *more* real conversation than noise. This is
+the most useful thing the investigation produced.
+
+**Investigation 3 — the real signal is how many people are talking.**
+
+The largest component is an ATVIAssist outage notice with **973 distinct authors**. A
+support conversation has two participants. Measuring distinct customers directly:
+
+| Distinct customers | Components |
+| --- | --- |
+| **1** | **743,468 (93.1%)** |
+| 2 | 42,551 (5.3%) |
+| 3-5 | 9,609 (1.2%) |
+| 6+ | 2,482 (0.3%) |
+
+That settled it: classify by participant structure, not fan-out (D15).
+
+**Investigation 4 — how reliable is the customer/brand label?**
+
+I was told not to accept "rare" without measuring, which was the right instruction.
+
+- `inbound` and "author_id looks numeric" are **perfectly collinear** — zero
+  exceptions in 2.81M rows. They are one signal recorded twice, so the numeric
+  heuristic adds nothing and is not used.
+- At least **179** customer-labelled authors are really brands (T-Mobile's CEO
+  account, OnePlus, Comcast, Activision). They appear in hundreds of components,
+  whereas 83.69% of genuine customers appear in exactly one.
+- Blast radius: **1,279 of 741,110 clean conversations (0.173%)**.
+- But author `169172` received 447 replies while appearing in only **2** components —
+  a real customer who went viral. No single threshold cleanly separates the two,
+  which is exactly why `customer_thread_count` is recorded raw (D18).
+
+### Problem encountered #11 — pandas 3.0 timestamp handling
+
+**Symptom:**
+
+```text
+TypeError: int() argument must be a string, a bytes-like object or a real number,
+not 'Timestamp'
+```
+
+**Root cause:** For a timezone-aware datetime Series, pandas 3.0's `.to_numpy()`
+returns an **object** array of `Timestamp` objects, not a numeric `datetime64` array.
+I was feeding that straight into `np.lexsort`, which needs numbers.
+
+**How I fixed it:** `timestamp.astype("int64").to_numpy()`, which converts to
+nanoseconds since epoch first. I also stopped converting `created_at` to numpy for
+the output and kept it as a pandas Series sliced with `.iloc`, so the timezone-aware
+dtype survives into Parquet. I added a guard that raises if any timestamp fails to
+parse, since ordering would otherwise be meaningless.
+
+This is the pandas 3.0 caveat from Phase 0.5 actually biting, exactly as predicted.
+
+### Problem encountered #12 — the harness caught a real classification bug
+
+**Symptom:** The sample run failed validation:
+
+```text
+RuntimeError: Reconstruction validation failed: clean_conversations_are_dyads
+```
+
+**Root cause:** I had written the status assignment as a chain of overwrites starting
+from `"clean"`. A component with 1 customer and **0 brands** matched none of the
+overwrite conditions, kept the default, and was labelled `clean` despite not being a
+dyad. Investigating showed exactly one such case, `conv_119237` — a single customer
+tweet whose brand reply is not inside the 93-row sample.
+
+**How I fixed it:** Replaced the overwrite chain with an explicit `np.select` that
+covers the whole space, and added a fifth status `no_brand` (D21).
+
+**Why this matters more than the bug:** in the full dataset `no_brand` occurs **zero**
+times, so the full run would have passed and I would never have noticed. A 93-row
+file caught a defect the 2.8M-row run could not. That is the whole argument for the
+small harness.
+
+### Verification
+
+All 12 invariants PASS on both sample and full.
+
+| Check | Result |
+| --- | --- |
+| Turn count == source rows | 2,811,774 == 2,811,774 |
+| tweet_id unique | PASS |
+| Every tweet in exactly one conversation | PASS |
+| Parent in same conversation | PASS |
+| No parent outside source | PASS |
+| turn_index starts at 0, no gaps | PASS |
+| Parent never later than child | PASS |
+| Clean conversations are strict dyads | PASS |
+| Deterministic output | **byte-identical SHA-256 on re-run** |
+
+**Independent corroboration:** `response_tweet_id` was not used to build anything,
+then compared afterwards. **100.0% of the 2,013,577 built edges are also declared by
+it**, while 172,500 declared edges cannot be built. The parent column is a strict,
+reliable subset — the evidence behind D14.
+
+**The known thread reconstructed correctly**, and the full component demonstrates
+more than the 7-tweet chain alone:
+
+```text
+turn tweet speaker   author      parent  created_at
+  0     8  customer  115712        -     21:45:10   <- root
+  1    10  brand     sprintcare    8     21:45:59   \
+  2     9  brand     sprintcare    8     21:46:14    | branching
+  3     6  brand     sprintcare    8     21:46:24   /
+  4     7  customer  115712        6     21:47:48   \ branching
+  5     5  customer  115712        6     21:49:35   /
+  6     4  brand     sprintcare    5     21:54:49
+  7     3  customer  115712        4     22:08:27
+  8     1  brand     sprintcare    3     22:10:47
+  9     2  customer  115712        1     22:11:45
+```
+
+Time increases at every step while tweet IDs do not. Branching is preserved through
+parent pointers. Classified `clean`, 5 customer turns, 5 brand turns, depth 6.
+
+### Results
+
+| Status | Conversations | % | Tweets |
+| --- | --- | --- | --- |
+| `clean` | 741,110 | 92.85% | 2,360,317 |
+| `multi_customer` | 54,642 | 6.85% | 437,899 |
+| `multi_brand` | 2,358 | 0.30% | 13,351 |
+| `no_customer` | 87 | 0.01% | 207 |
+| `no_brand` | 0 | 0.00% | 0 |
+
+Clean conversations: median 2 turns, mean 3.18, max 448, median duration 51.3
+minutes, 3,470 with truncated roots.
+
+**Note on `multi_brand`:** the probe predicted 3,066 components with 2+ brands; the
+final table shows 2,358. Not a discrepancy — classification precedence puts
+`multi_customer` first, so the ~708 components that are *both* multi-customer and
+multi-brand are counted once, under `multi_customer`.
+
+### A note for later phases
+
+`parent_tweet_id` is stored correctly as `int64` in Parquet, but plain
+`pd.read_parquet` returns it as `float64` because the column is nullable. Values are
+exact (max ~2.8M, far inside float64's integer range), but for clean joins use
+`pd.read_parquet(..., dtype_backend="numpy_nullable")`, which gives `Int64`.
+
+### Change to Phase 1 code
+
+One line added to `src/config.py`: `PROCESSED_DIR`. That file holds paths and
+constants and contains no logic, so this is additive rather than a rewrite. I re-ran
+the Phase 1 sample profile afterwards and diffed it: the only differing value is
+`free_disk_gb_before_cache`, an environment reading. Phase 1 behaviour unchanged.
+
+### Limitations
+
+- Speaker role inherits the dataset's `inbound` labelling; measured error 0.173% of
+  clean conversations.
+- 16.06% of tweets fall outside `clean` — a deliberate precision-over-recall trade.
+- 3,862 truncated roots are missing the customer's opening message.
+- Multi-customer components are kept intact, not split.
+- Conversations that move to DM end abruptly; the resolution is not in the data.
+
+### Next step
+
+Phase 4 brand selection can now use real reconstructed statistics instead of the
+1-hop approximations from Phase 1.

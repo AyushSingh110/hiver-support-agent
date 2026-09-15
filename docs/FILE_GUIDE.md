@@ -134,6 +134,64 @@ requires the `tabulate` package, and this phase does not otherwise need it.
 
 ---
 
+### `src/reconstruct.py` 🔴
+
+**Purpose:** Phase 2. Turn tweet-level reply links into conversations.
+
+**Inputs:** `data/interim/twcs.parquet` (Phase 1 cache).
+
+**Outputs:** `data/processed/conversation_turns.parquet`,
+`data/processed/conversations.parquet`, `reports/phase2_reconstruction.{md,json}`.
+
+**Dependencies:** pandas, numpy, pyarrow, `src.config`. No graph library.
+
+**Flow:** `reconstruct()` runs the sequence — parent array → roots → depth →
+participant classification → conversation IDs → turn ordering → conversation stats.
+`main()` then writes, validates and reports. Deliberately linear; no abstraction
+layer.
+
+#### Functions that matter
+
+**`find_roots` 🔴 — the one non-obvious algorithm.**
+Pointer doubling. Each tweet's slot holds its parent's slot; roots point at
+themselves. `pointer = pointer[pointer]` means "take my parent's pointer as my own",
+so reach **doubles** every round — after ~log₂(depth) rounds everyone points at their
+root. Max depth is 649, so about 10 rounds. Roots being self-pointing is what halts
+it. A cycle would never stabilise, so the loop caps iterations and raises rather than
+hanging; Phase 1 measured 0 cycles, which is what makes this safe. Be ready to
+explain why the graph is a forest and why that makes this valid.
+
+**`classify_participants` 🔴 — the broadcast decision, and the likeliest interview
+question.** Counts distinct customers and distinct brands per component, then assigns
+status via `np.select` with explicit precedence. `clean` means strictly one customer
+and one brand. Uses `np.select` rather than sequential overwrites because a chain of
+overwrites left a gap that mislabelled a non-dyad as clean — see D21. Also computes
+`customer_thread_count`, recorded raw with no threshold (D18).
+
+**`assign_turn_index` 🔴 — why `created_at`, never `tweet_id`.**
+`np.lexsort((tweet_id, timestamp, root))` sorts by conversation, then time, with
+`tweet_id` breaking exact ties only. The scatter-back (`turn_index[order] = position`)
+assigns positions without reordering the underlying rows, which keeps the batched
+Parquet write aligned by position.
+
+**`validate` 🔴 — where correctness is actually proven.**
+Twelve invariants; `main` raises if any fails. The ones that carry real weight:
+every tweet in exactly one conversation, every parent in the *same* conversation,
+parent never later than its child, and clean conversations being strict dyads.
+
+**`build_parent_index` 🟡.** Maps parent tweet IDs to array positions. Returns three
+arrays: resolved parent index, whether a parent was *declared*, and whether it
+*resolved*. The gap between the last two is the 3,862 truncated roots. Asserts no
+duplicate tweet IDs, since that would make the lookup ambiguous.
+
+**`cross_check_response_field` 🟡.** Compares the built edges against
+`response_tweet_id` *after* reconstruction. Never used to build anything — this is
+independent corroboration, and it returned 100.0%.
+
+**`compute_depth` ⚪.** Walks parent pointers on a shrinking active set.
+
+---
+
 ## Documentation
 
 | File | Purpose | Priority |
@@ -155,6 +213,9 @@ requires the `tabulate` package, and this phase does not otherwise need it.
 | `reports/phase1_profile.md` | Phase 1 report | Generated, Git-ignored |
 | `reports/phase1_stats.json` | Phase 1 statistics | Generated, Git-ignored |
 | `reports/phase1_*_sample.md/json` | Same, for the sample harness | Generated, Git-ignored |
+| `data/processed/conversation_turns.parquet` | One row per tweet with conversation context | Generated, Git-ignored |
+| `data/processed/conversations.parquet` | One row per conversation | Generated, Git-ignored |
+| `reports/phase2_reconstruction.{md,json}` | Phase 2 report | Generated, Git-ignored |
 
 ---
 

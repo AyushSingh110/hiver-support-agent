@@ -306,4 +306,196 @@ kept genuinely current, since it is the only place results appear.
 
 ---
 
+## D14 — `in_response_to_tweet_id` is the only relationship used to build edges
+
+**Problem:** The dataset describes the same reply relationship twice, and the two
+columns disagree.
+
+**Alternatives:** (a) use `response_tweet_id`, which declares more edges;
+(b) use both and merge; (c) use `in_response_to_tweet_id` alone and treat the other
+as a cross-check.
+
+**Chosen:** (c).
+
+**Why:** Phase 1 measured 172,500 dangling child references against 3,862 dangling
+parent references — `response_tweet_id` points at tweets that are not in the dataset
+roughly 45 times more often. Merging both would import those broken edges. The
+decisive confirmation came in Phase 2: **100.0% of the 2,013,577 edges built from
+`in_response_to_tweet_id` are also declared by `response_tweet_id`**, while 172,500
+declared edges cannot be built at all. The parent column is a strict, reliable subset.
+
+**Tradeoff:** We build no edge for a reply whose parent is missing. Those become
+truncated roots rather than being invented.
+
+**Consequence:** Every edge in the output is corroborated by both columns.
+
+---
+
+## D15 — Broadcast detection by participant structure, not a fan-out threshold
+
+**Problem:** Announcements and outage notices attract hundreds of unrelated replies.
+Treating those as conversations would fabricate enormous fake threads.
+
+**Alternatives:** (a) drop tweets above a fan-out threshold; (b) drop components
+above a size threshold; (c) classify by how many distinct people are involved.
+
+**Chosen:** (c). A component is `clean` only when it contains exactly one customer
+and one brand.
+
+**Why:** Fan-out is a proxy and a misleading one. Three measurements killed it:
+
+1. Replies under high fan-out hubs are *more* likely to develop into real exchanges
+   (78.8% have their own reply at fan-out ≥10, versus a 48.0% baseline), so a
+   threshold would delete genuine support.
+2. Cutting hubs barely helps structurally — the largest component shrinks only from
+   1,390 to 650 tweets.
+3. Participant count measures the thing itself. The largest component is an
+   ATVIAssist outage notice with **973 distinct authors**. A support interaction is a
+   dyad; that plainly is not one.
+
+**Tradeoff:** 16.06% of tweets fall outside `clean`. Deliberate: we would rather lose
+recall than let one fabricated conversation into the retrieval corpus.
+
+**Consequence:** 741,110 clean conversations covering 83.94% of tweets. The seeded
+examples confirm the rule behaves as intended — it separated a hulu_support dyad from
+two customers chatting about M&S, from a customer complaining to Amazon *and* UPS
+about one package, from LondonMidland's self-threaded outage updates.
+
+---
+
+## D16 — Keep multi-customer components intact rather than splitting them
+
+**Problem:** A multi-customer component may hide several real dyads inside it.
+
+**Alternatives:** (a) split into per-customer sub-conversations; (b) discard;
+(c) keep intact, classify, and let later phases filter.
+
+**Chosen:** (c).
+
+**Why:** Splitting means deciding which brand turn answers which customer when a
+brand replies to several people under one announcement. That is a second inference
+stacked on top of reconstruction, and an error would silently manufacture a
+conversation — precisely the failure this phase exists to prevent. With 741,110 clean
+dyads already available, the extra ~5% is not needed.
+
+**Tradeoff:** Some genuine exchanges stay locked inside multi-customer components.
+
+**Consequence:** Nothing is deleted, so the decision is auditable and reversible.
+Revisit in Phase 4 only if the selected brand proves data-poor.
+
+---
+
+## D17 — Pointer doubling for component discovery
+
+**Problem:** Assign each of 2.81M tweets to its conversation root.
+
+**Alternatives:** (a) NetworkX connected components; (b) walk parent pointers per
+tweet with memoisation; (c) pointer doubling.
+
+**Chosen:** (c). `pointer = pointer[pointer]` repeated until stable.
+
+**Why:** Each round replaces a pointer with its parent's pointer, so reach doubles;
+roots point at themselves, which halts the walk. Max depth is 649, so ~10 rounds
+suffice. It is ~6 lines of vectorised numpy. NetworkX means a dependency and a large
+in-memory graph object. The memoised walk is a Python loop over 2.81M nodes — both
+slower *and* longer, once path-compression bookkeeping is included.
+
+**Tradeoff:** Requires understanding the doubling idea. It is not chosen for
+cleverness — the alternative is worse on both axes.
+
+**Consequence:** Whole reconstruction runs in 0.9 minutes. The loop caps iterations
+and raises rather than spinning forever, so a cycle would fail loudly.
+
+---
+
+## D18 — Record `customer_thread_count` without applying a threshold
+
+**Problem:** Some brand accounts are anonymised as numeric IDs and are therefore
+labelled customers. Measured: at least 179 such authors, touching 1,279 of 741,110
+clean conversations (0.173%).
+
+**Alternatives:** (a) ignore it; (b) emit a `suspect_customer_role` boolean using a
+cutoff; (c) record the raw count and let later phases decide.
+
+**Chosen:** (c).
+
+**Why:** Any cutoff is arbitrary, and the measurement shows why it would misfire:
+author `169172` received 447 replies but appears in only 2 components — a real
+customer who went viral, not a brand. Freezing a threshold into the data would bake
+that error in permanently. Recording the raw count keeps the judgement visible and
+deferrable at the cost of one groupby.
+
+**Tradeoff:** Downstream phases must decide for themselves.
+
+**Consequence:** Role inference is honest about its uncertainty instead of hiding it
+behind a boolean.
+
+---
+
+## D19 — `conversation_id = conv_{root_tweet_id}`
+
+**Problem:** Conversations need stable identifiers.
+
+**Alternatives:** (a) sequential counter; (b) hash of members; (c) derive from the
+root tweet.
+
+**Chosen:** (c).
+
+**Why:** A counter depends on row order and changes between runs. A hash is stable
+but opaque. The root tweet ID is already unique per component, traceable straight
+back to the raw CSV, and needs no extra machinery.
+
+**Tradeoff:** If a component were ever split, IDs would change — acceptable, since
+D16 means we do not split.
+
+**Consequence:** Re-running produces byte-identical output, verified by SHA-256.
+
+---
+
+## D20 — Preserve Phase 1's fan-out measurement rather than restate it
+
+**Problem:** Phase 1 reported 472 tweets with 50+ replies. Phase 2 measures 62.
+
+**Alternatives:** (a) correct the Phase 1 report; (b) keep both and explain.
+
+**Chosen:** (b).
+
+**Why:** Neither number is wrong. Phase 1 counted **declared** children from
+`response_tweet_id`; Phase 2 counts **resolvable** children from actual parent edges.
+The gap is not an error — it *is* the evidence that the two relationship columns have
+different reliability, which is what justifies D14. Overwriting the earlier figure
+would destroy the reasoning that led to the decision.
+
+**Tradeoff:** A reader meeting both numbers needs the explanation.
+
+**Consequence:** Both are reported, with the distinction stated wherever either
+appears.
+
+---
+
+## D21 — A fifth status, `no_brand`, to make classification a total partition
+
+**Problem:** The sample harness failed the `clean_conversations_are_dyads` invariant.
+A component with one customer and **zero** brands was falling through sequential
+overwrites and landing on `clean`.
+
+**Alternatives:** (a) special-case it into an existing status; (b) leave it, since it
+never occurs in the full dataset; (c) add a fifth status and make the classification
+an explicit total partition.
+
+**Chosen:** (c), using `np.select` with stated precedence.
+
+**Why:** The approved design named four statuses, but those four did not cover the
+whole space. Leaving a gap is how the bug happened. `no_brand` occurs **0 times** in
+the full dataset — but it occurs in the sample, and a classification that is only
+correct on one input is not correct.
+
+**Tradeoff:** One status more than the approved design. Flagged rather than applied
+silently.
+
+**Consequence:** Bug caught by the harness before the full run. Full dataset:
+`no_brand` = 0, as predicted.
+
+---
+
 *Further decisions are appended as later phases are implemented.*

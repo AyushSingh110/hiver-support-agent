@@ -6,6 +6,7 @@ RAW_TWCS_CSV = PROJECT_ROOT / "data" / "raw" / "twcs" / "twcs.csv"
 RAW_SAMPLE_CSV = PROJECT_ROOT / "data" / "raw" / "sample.csv"
 
 INTERIM_DIR = PROJECT_ROOT / "data" / "interim"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 REPORTS_DIR = PROJECT_ROOT / "reports"
 
 RAW_COLUMNS = [
