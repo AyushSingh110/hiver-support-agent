@@ -136,10 +136,19 @@ unvalidated.
 Next decision: accept a vocabulary-derived taxonomy, or invest in embeddings for a
 better partition. Evidence in `docs/DECISION_LOG.md` D25.
 
-**Validation in progress.** A 148-message pilot batch (120 random + 28 targeted) is
-awaiting manual labelling in `golden/`. The candidate taxonomy is frozen as
-`golden/taxonomy_v1.md` and revision triggers were declared *before* labelling began,
-so changes will be evidence-driven rather than fitted to the results.
+**Pilot labelled and analysed; taxonomy decision pending.** 148 messages hand-labelled
+by one annotator; 147 analysed after one row was excluded for a text/source mismatch
+caught by validation. Prevalence is reported from the 119-row random stratum only.
+
+Two of five pre-declared triggers fired: `OTHER` at 11.8% (threshold 10%), and
+non-high confidence above 30% in six intents — worst is
+`flight_cancellation_rebooking` at 67%, exactly the intent Phase 4 flagged as
+suspect. Reading the `OTHER` rows showed they are **not** one missing category: six
+are non-support travel commentary, seven are a genuine long tail of distinct
+operational issues. Recommendation is minimal revision, not redesign.
+
+**No agreement score is reported.** One annotator, one pass, so neither inter- nor
+intra-annotator agreement is computable, and none was invented.
 
 `golden/` is the one directory tracked in Git rather than ignored — hand labels are
 the only artifact in this project that cannot be regenerated from code. Golden labels

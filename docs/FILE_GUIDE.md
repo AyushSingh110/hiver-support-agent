@@ -330,6 +330,48 @@ untouched in Parquet and joinable on `conversation_id`.
 
 ---
 
+### `src/analyse_annotations.py` 🔴
+
+**Purpose:** Phase 5d. Analyse a completed annotation batch and evaluate the
+pre-declared taxonomy triggers.
+
+**Inputs:** `golden/b01_pilot_labelled.csv` (**read-only**),
+`data/processed/conversation_turns.parquet`, the sampling manifest.
+
+**Outputs:** `reports/phase5_pilot_analysis.md`, `reports/phase5_pilot_stats.json`,
+`reports/phase5_ambiguous_cases.csv`.
+
+**Dependencies:** pandas, pyarrow, `src.config`. **No sklearn, no LLM, no network.**
+
+#### Functions that matter
+
+**`validate` 🔴 — the check that actually earned its place.**
+Compares every row's `text_display` against the Phase 2 source instead of trusting
+the returned file. Caught `b01_0066`, whose label had been applied to text belonging
+to no message in the batch — a row that looked entirely well-formed. Without this,
+a mislabelled example would have entered the golden set silently. See D31.
+
+**`normalise` 🔴 — corrections that never touch the file.**
+Applies a deterministic map for typos and conventions, and **logs every affected
+`annotation_id`**. The annotator's CSV is opened read-only and never written. Keeps
+an author's judgement distinguishable from a tool's correction (D32).
+
+**`evaluate_triggers` 🔴.** Evaluates the five thresholds declared in D29 **before
+any label existed**, against the **random stratum only** — the targeted stratum
+over-samples rare intents and cannot support prevalence claims (D28). Note the
+report presents trigger results as evidence; the interpretation is authored
+separately, because a fired trigger says *that* something is wrong, not *what* (D33).
+
+**`intent_table` 🟡.** Per-intent counts with confidence breakdown, ambiguity and
+discussion rates. The `pct_not_high` column proved more useful than `low` confidence
+alone, which the annotator barely used.
+
+**`build_review_cases` 🟡.** Extracts every row flagged ambiguous, flagged for
+discussion, or labelled below high confidence, with **90-character excerpts only** —
+reports deliberately avoid dumping full tweet text.
+
+---
+
 ## Hand-authored files, not generated
 
 | File | Nature |

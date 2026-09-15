@@ -1453,3 +1453,199 @@ seeing the labels.**
 **Waiting on human labels.** Nothing further runs until `b01_pilot_labelled.csv`
 exists. Stage 5d (analysis) is written only after the labels are returned, so it
 cannot be shaped by knowledge of them.
+
+---
+
+## Phase 5d — Pilot annotation analysis
+
+**Date:** 2026-09-15
+**Status:** Analysis complete. Taxonomy decision pending joint review.
+**Objective:** Determine whether the pilot supports `taxonomy_v1`, using thresholds
+declared before any label existed.
+
+### Data integrity — one real problem found
+
+The annotator labelled in Excel and exported to CSV. Two artifacts of that round trip:
+
+**1. `created_at` was reformatted (all 148 rows).** Excel parsed the timestamps and
+rewrote them: `2017-10-14 12:13:29` became `14-10-2017 12:13`, **dropping seconds**.
+Harmless here — the analysis takes timestamps from
+`conversation_turns.parquet`, which is authoritative — but worth knowing, because a
+future phase that trusted the CSV timestamps would silently lose precision.
+
+**2. One row's text does not match its `conversation_id`.**
+
+I checked every row's `text_display` against the Phase 2 source rather than assuming
+the round trip was lossless. **147 of 148 matched exactly**, emoji and punctuation
+included. One did not:
+
+```text
+b01_0066  conv_2373654
+  CSV shows : "off to @46163 !! / Starting things off right with champagne..."
+  source is : "@AmericanAir The largest plane I've ever flown in is the AA 757..."
+```
+
+The CSV text appears **nowhere in the blank batch**, so this is not two rows swapping
+places — a single cell's content was replaced at some point during editing. The
+annotation IDs, conversation IDs and tweet IDs all stayed correctly aligned.
+
+**Handling: excluded from analysis (n=147), not corrected.** The label
+(`OTHER`, high confidence, note "couldnot understand") was made against text that
+does not belong to that conversation, so it cannot be trusted for `conv_2373654`. I
+will not guess which message was actually on screen. It is reported here and in the
+generated report, and should be relabelled against the correct source text.
+
+**This check is the reason to compare against source rather than trust a file.**
+Nothing else would have caught it: the row looks perfectly well-formed.
+
+### Normalisations — analysis only, file untouched
+
+| Rule | Rows | Change |
+| --- | --- | --- |
+| `intent_typo` | 3 | `fligh_delay`→`flight_delay`, `baggae`→`baggage`, `booking_fee_and_fare_rules`→`booking_fees_and_fare_rules` |
+| `confidence_canonical` | 0 | `med`→`medium` (the annotator used `medium` throughout, so nothing fired) |
+| flag values | 105 | `yes` accepted as true |
+
+The guidelines asked for `med` and `y`; the annotator typed `medium` and `yes`, which
+are the natural things to type. **That is a flaw in my guidelines, not in the
+labelling**, so the analysis accepts both rather than asking for 105 cells to be
+retyped. Every affected `annotation_id` is listed in the generated report.
+
+### Results — random stratum only (n=119)
+
+Prevalence uses the random stratum exclusively; the targeted stratum deliberately
+over-samples rare intents (D28).
+
+| Intent | n | % | non-high confidence | needs discussion |
+| --- | --- | --- | --- | --- |
+| flight_delay | 28 | 23.5 | 21% | 31% |
+| praise_and_compliment | 14 | 11.8 | 14% | 19% |
+| **OTHER** | **14** | **11.8** | 43% | **93%** |
+| booking_fees_and_fare_rules | 13 | 10.9 | 31% | 44% |
+| baggage | 9 | 7.6 | **0%** | 40% |
+| UNCLEAR | 9 | 7.6 | 0% | 55% |
+| seating_and_upgrade | 8 | 6.7 | 50% | 50% |
+| general_dissatisfaction | 8 | 6.7 | 50% | 56% |
+| loyalty_and_lounge | 6 | 5.0 | 50% | 62% |
+| boarding_and_gate | 4 | 3.4 | 50% | 40% |
+| flight_cancellation_rebooking | 3 | 2.5 | **67%** | **75%** |
+| staff_and_service_complaint | 3 | 2.5 | 0% | 25% |
+
+**Triggers fired: 2 of 5.**
+
+- `OTHER` at **11.8%** exceeds the 10% threshold.
+- Non-high confidence above 30% in **six** intents:
+  `flight_cancellation_rebooking` (67%), `seating_and_upgrade`, `boarding_and_gate`,
+  `general_dissatisfaction`, `loyalty_and_lounge` (all 50%),
+  `booking_fees_and_fare_rules` (31%).
+
+Not fired: `UNCLEAR` 7.6% (under 15%); no intent below 2%; no primary/secondary pair
+above 15%.
+
+### Is `OTHER` one missing category? No — and that matters
+
+The trigger fired, but firing a trigger is not a conclusion. Reading all 14 `OTHER`
+rows and their notes, they split into **two groups that are not one category**:
+
+**Group A — non-support social/travel commentary (6 rows).** Photos, views,
+news-sharing, affection. *"Always a nice view flying in and out of San Diego"*,
+*"How cool! AA Announces New Service to Reykjavik"*, *"AA is still bae"*. No request,
+and **not praise of service either** — the annotator consistently chose `OTHER` over
+`praise_and_compliment`, which is a meaningful distinction.
+
+**Group B — real support issues, each different (7 rows).** Airport shuttle/ground
+transport · accessibility/assistant confusion · broken complaint form (web
+technical) · passenger paperwork · security/PreCheck · unreachable phone lines ·
+a compensation offer dispute.
+
+**Group B is a long tail, not a category.** Seven issues, seven different topics. That
+argues *against* inventing one large catch-all intent and *for* keeping `OTHER` as an
+honest residual class.
+
+### `needs_discussion` at 45% — concentrated, not liberal
+
+The rate looked alarmingly high, so I checked whether it was a habit or a signal:
+
+| Intent | % flagged |
+| --- | --- |
+| OTHER | 93% |
+| flight_cancellation_rebooking | 75% |
+| loyalty_and_lounge | 62% |
+| general_dissatisfaction | 56% |
+| flight_delay | 31% |
+| staff_and_service_complaint | 25% |
+| **praise_and_compliment** | **19%** |
+
+It tracks taxonomy difficulty almost perfectly. The flag is concentrated exactly
+where the taxonomy fails and is lowest on the cleanest intent. **This is a
+high-quality signal, not over-flagging.**
+
+### `UNCLEAR` is partly absorbing a taxonomy gap
+
+Of the 11 `UNCLEAR` rows, most are genuinely unlabelable (*"Booooooooooo
+@AmericanAir 🙄"*, a Spanish message, lounge check-ins). But two are **clear requests
+with no home in v1**:
+
+- `b01_0099` — *"WiFi marketed flight but no WiFi available"* — an unambiguous
+  in-flight service issue
+- `b01_0123` — *"Got married, need to change my last name on my AAdvantage"* — an
+  unambiguous account-change request
+
+So the true taxonomy-gap rate is slightly higher than the `OTHER` count alone shows.
+**I have not relabelled these** — that is the annotator's call.
+
+### Agreement — not computable, and not invented
+
+**One annotator, one pass.** Neither inter-annotator nor intra-annotator agreement
+can be calculated from this pilot, and no score is reported.
+
+A blind test-retest would require the same annotator relabelling a shuffled subset of
+40-50 rows after a gap, with the original labels hidden. Cohen's kappa would then be
+computable, and would still be an **upper bound** on reliability, since a person
+agrees with themselves more than two people agree with each other.
+
+### Sampling check
+
+Manifest verified against the labelled file: seed 42, population 24,239, 120 random +
+28 targeted, month split 59/56/5. Matches. No sampling imbalance beyond the
+intentional targeted stratum.
+
+### Recommendation — minimal revision (option B), decision pending
+
+Not "freeze as-is": two triggers fired and six intents show weak confidence.
+Not "substantially redesign": 10 of 12 labels are working, `baggage` is perfect
+(0% non-high confidence), and the distribution is plausible for airline support.
+
+Smallest defensible change, for joint review:
+
+1. **Add `non_support_commentary`** — covers Group A plus several `UNCLEAR` rows.
+   Evidence: 6 `OTHER` + ~4 `UNCLEAR`, roughly 8% combined. *Benefit:* removes the
+   largest coherent chunk of `OTHER` and gives the agent a clean auto-handle class.
+   *Downside:* boundary with `praise_and_compliment` needs a sharp rule.
+2. **Add `inflight_experience`** — WiFi, seat comfort, entertainment, catering.
+   Evidence: `b01_0099` plus related notes. *Benefit:* a recurring real issue with no
+   home. *Downside:* thin pilot evidence; may stay rare.
+3. **Merge `flight_cancellation_rebooking` into `flight_delay`** as
+   `flight_disruption`, or sharpen its definition. Evidence: 2.5% prevalence, **67%
+   non-high confidence, 75% flagged** — the weakest intent, exactly as Phase 4
+   predicted when its cluster's terms disagreed with its contents. *Downside:*
+   cancellation and delay imply different actions; merging loses that.
+4. **Sharpen definitions** for `seating_and_upgrade`, `boarding_and_gate`,
+   `general_dissatisfaction`, `loyalty_and_lounge` (all 50% non-high) without
+   changing their scope.
+5. **Keep `OTHER`** as a residual class. Group B proves a genuine long tail exists.
+
+**Deliberately not proposed:** splitting `seating_and_upgrade` (the Phase 4 open
+question). The pilot gives 8 random examples — too few to support a split.
+
+### Limitations
+
+- 119 representative rows; per-intent counts are small and confidence intervals wide.
+- One annotator, one pass, no agreement measure.
+- Opening messages only.
+- `b01_0066` excluded pending relabelling.
+
+### Next step
+
+Joint review of the five proposals, then either freeze v1 or author v2. **No
+classifier, retrieval, generation or escalation work until that is settled.**

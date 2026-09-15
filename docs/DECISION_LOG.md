@@ -780,4 +780,109 @@ promise in a document.
 
 ---
 
+## D31 — Annotated rows are verified against the source, not trusted
+
+**Problem:** The pilot was labelled in Excel and exported to CSV. A spreadsheet round
+trip can silently alter cells, and a corrupted row looks perfectly well-formed.
+
+**Alternatives:** (a) trust the returned file; (b) spot-check a sample; (c) verify
+every row's displayed text against the Phase 2 source.
+
+**Chosen:** (c), as a hard validation step.
+
+**Why:** A label is only meaningful if it was applied to the right message. Nothing
+about row `b01_0066` looked wrong — valid ID, valid label, sensible note — yet its
+`text_display` matched no message in the batch, so the label was made against text
+that does not belong to that conversation.
+
+**Result:** 147 of 148 rows verified identical to source, emoji and punctuation
+included. One excluded.
+
+**Tradeoff:** One row of 148 lost (0.7%) rather than risk a mislabelled example
+entering the golden set.
+
+**Consequence:** Also caught Excel rewriting `created_at` (`2017-10-14 12:13:29` →
+`14-10-2017 12:13`, seconds dropped) across all rows. Analysis takes timestamps from
+Parquet, so nothing downstream depends on the CSV copy.
+
+---
+
+## D32 — Normalise in the pipeline, never in the annotator's file
+
+**Problem:** Three intent typos and two convention mismatches (`medium` for `med`,
+`yes` for `y`) needed handling.
+
+**Alternatives:** (a) edit the CSV; (b) ask for 105 cells to be retyped;
+(c) normalise deterministically in analysis and log every change.
+
+**Chosen:** (c). The file on disk is never written to.
+
+**Why:** Hand labels are the project's only non-reproducible artifact. Editing them
+in place destroys the record of what the annotator actually entered, and no later
+reviewer could tell an author's judgement from a tool's correction. Logging every
+`annotation_id` keeps both visible.
+
+On `medium`/`yes`: **the guidelines were at fault, not the labelling.** Asking for
+`med` and `y` when `medium` and `yes` are what anyone naturally types was a design
+error on my part, so the analysis accepts both.
+
+**Tradeoff:** The normalisation map must be maintained alongside the taxonomy.
+
+**Consequence:** Three typo fixes, all unambiguous, each listed by row in the report.
+
+---
+
+## D33 — A fired trigger is evidence, not a conclusion
+
+**Problem:** The pre-declared `OTHER` trigger fired at 11.8%, above its 10%
+threshold. The mechanical response would be "add an intent".
+
+**Alternatives:** (a) add a catch-all intent because the trigger fired; (b) read the
+14 `OTHER` rows and decide what, if anything, is actually missing.
+
+**Chosen:** (b).
+
+**Why:** The trigger detects *that* something is wrong, not *what*. Reading the rows
+showed `OTHER` is two unrelated things: six rows of non-support social/travel
+commentary (a coherent category), and seven rows of genuinely distinct operational
+issues — shuttle transport, accessibility, a broken web form, paperwork, security
+screening, unreachable phone lines, a compensation dispute. **Seven issues, seven
+topics.**
+
+A single new intent would have merged a real category with an irreducible long tail
+and looked like progress while hiding the tail.
+
+**Tradeoff:** Requires reading every flagged row — which is the point.
+
+**Consequence:** Recommendation is one coherent addition plus **keeping `OTHER`** as
+an honest residual class, rather than eliminating it.
+
+---
+
+## D34 — No agreement score is reported, because none exists
+
+**Problem:** Reliability is expected in an evaluation-first project, and there is
+pressure to produce a number.
+
+**Chosen:** Report none. State plainly: one annotator, one pass.
+
+**Why:** Calling anything here "inter-annotator agreement" would be false — there is
+one annotator. Computing intra-annotator agreement needs a second blind pass, which
+has not happened. A number produced from a single pass would be fabricated.
+
+Reported instead: confidence distribution, ambiguity rate, and the
+`needs_discussion` rate broken down per intent — which turned out to be the more
+informative measure. At 45% overall it looked like over-flagging, but it is
+concentrated at 93% on `OTHER` and 75% on the weakest intent while sitting at 19% on
+the cleanest. It tracks taxonomy difficulty, not annotator habit.
+
+**What a real measurement needs:** the same annotator relabelling a shuffled 40-50
+row subset after a gap, prior labels hidden. Cohen's kappa would then apply, and
+would still be an **upper bound** on reliability.
+
+**Consequence:** No reliability figure until a second pass exists. Stated as a
+limitation rather than filled with a proxy.
+
+---
+
 *Further decisions are appended as later phases are implemented.*
