@@ -975,4 +975,71 @@ projected distributions are labelled projections from proposals, not results.
 
 ---
 
+## D39 — Two-layer exclusion: conversation and customer
+
+**Problem:** Conversation-level exclusion removes the 248 golden conversations, but 75
+of their customers wrote **207 further conversations** still sitting in the population.
+
+**Chosen:** Two separate lists — `golden_exclusion_ids.txt` (248 `conversation_id`s)
+and `golden_customer_exclusion_ids.txt` (248 `customer_author_id`s). Both applied
+downstream.
+
+**Why the customer list holds 248 IDs, not 75:** the golden set is written by 248
+distinct customers, one per row. Only 75 have other conversations, so both lists
+remove exactly the same 207 conversations today — measured, identical. The 248-ID
+version was chosen because it stays correct if the corpus is later widened, whereas a
+75-ID list would silently under-exclude.
+
+**Tradeoff:** ~0.86% of the non-golden pool removed, including legitimate development
+examples from those customers. Accepted for a cleaner evaluation.
+
+**Consequence, and the reason neither list is sufficient:** `b01_0019` (golden,
+customer 422918) and `conv_1584861` (population, customer **487666**) are the same
+Admirals Club check-in template — Jaccard **1.0** after URL stripping, written by two
+*different people*. Different conversation, different customer, so **both layers miss
+it**. The corpus builder therefore needs a third filter: near-duplicate text matching
+at Jaccard >= 0.8 against the golden set.
+
+---
+
+## D40 — Test-retest gap, and what the resulting number can mean
+
+**Problem:** An intra-annotator reliability figure is only meaningful if the annotator
+has genuinely forgotten their earlier decisions.
+
+**Chosen:** 45-row opaque batch built immediately, labelled **on or after 2026-09-22**
+— roughly 7 days after the original sessions (b01 20:26 and b02 22:43 on 2026-09-15).
+
+**Why build now but label later:** the gap protects against *recall while labelling*,
+not against the file existing. The clock is set by when the annotator last saw the
+texts, so generating the artifact early costs nothing provided it stays unopened.
+
+**Design choices that follow from this:**
+
+- Stratified by **batch only** (27 b01 / 18 b02), never by intent. Cohen's kappa
+  depends on the class marginals, so over-sampling rare intents would produce a kappa
+  describing an invented sample rather than the golden set.
+- Blank file exposes **only** `retest_id` and `text`. IDs are assigned *after*
+  shuffling, so position leaks nothing.
+- The builder refuses to overwrite the frozen batch.
+
+**Limitations to state when the number is reported:**
+
+1. **This is intra-annotator (test-retest) agreement, not inter-annotator
+   agreement.** One person agrees with themselves more than two people agree with each
+   other, so it is an **upper bound** on labelling reliability.
+2. **Seven days is short for 45 items the annotator saw recently.** The figure
+   measures consistency *plus residual memory*, and memory inflates it.
+3. **Reviewer-suggestion influence.** Where a ChatGPT suggestion shaped an original
+   label, the same reasoning may resurface at retest, inflating agreement further.
+   More importantly this means **Phase 14's LLM-judge agreement is not independent** —
+   shared influence would inflate it, and that must be disclosed there rather than
+   presented as corroboration.
+4. **Kappa on 45 items across 13 classes is noisy.** A bootstrap confidence interval
+   will be reported alongside the point estimate, and three intents
+   (`boarding_and_gate`, `staff_and_service_complaint`, `UNCLEAR`) are expected to
+   draw 0-2 examples, so per-intent agreement will be unavailable for them.
+
+---
+
 *Further decisions are appended as later phases are implemented.*

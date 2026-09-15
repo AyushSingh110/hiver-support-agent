@@ -1754,3 +1754,87 @@ The golden set is its first honest test. Recorded as D38.
 
 Human review of the 22 queue rows. Then freeze v2, update the analyser's valid-label
 set, re-run the pilot analysis, and only then draw the golden set.
+
+
+---
+
+## Phase 5f — Golden set frozen, exclusions built, retest batch prepared
+
+**Date:** 2026-09-15
+**Status:** Golden set complete. Retest batch built and held until 2026-09-22.
+
+### The golden set
+
+**248 rows**, frozen, SHA-256 `1C58D818...`.
+
+| | rows | provenance |
+| --- | --- | --- |
+| b01 | 148 | 120 random + 28 targeted, labelled while the taxonomy was still being revised |
+| b02 | 100 | fully random, labelled under frozen v2, **independent** |
+
+Integrity: text matches the Phase 2 source **248/248**, tweet IDs match source, all
+248 customer IDs resolved, every label valid under v2, ordering deterministic by
+`(batch, annotation_id)`.
+
+**The two batches are not equivalent evidence.** b01's targeted rows inflate rare
+intents - `seating_and_upgrade` is 14 in b01 against 2 in b02. Every later metric
+must be reported on all 248 *and* on the independent 100 alone, and the combined
+distribution must never be quoted as a prevalence estimate.
+
+### Leakage, and the case neither exclusion layer catches
+
+Checked against all 24,239 openings:
+
+| Check | Result |
+| --- | --- |
+| conversation_id overlap | 0 |
+| tweet_id overlap | 0 |
+| customer overlap | **75 customers, 207 further conversations** |
+| exact normalised-text overlap | **1** |
+| near-duplicate (Jaccard >= 0.8) | **1** |
+
+Two exclusion lists were built: 248 conversation IDs and 248 customer IDs. Both
+remove exactly the same 207 conversations (measured), costing 0.86% of the pool.
+
+The single duplicate is the interesting result:
+
+```text
+golden      b01_0019 / conv_1295943 / customer 422918
+population           conv_1584861   / customer 487666
+both        "I'm at American Airlines Admirals Club - @americanair in Miami, FL [URL]"
+Jaccard 1.0 after URL stripping
+```
+
+Two **different people** posting the same check-in template. Different conversation,
+different customer - so **neither exclusion layer removes it**. This is concrete
+evidence that ID-based exclusion is insufficient and the corpus builder needs a
+near-duplicate text filter as a third layer. `b01_0019` stays in the golden set
+unchanged.
+
+### An arithmetic correction worth recording
+
+The retest split had been planned as 31 b01 / 14 b02. That came from the earlier
+**218-row** design (148 + 70). With 248 rows the batch-proportional split is
+**27 / 18**. Using the stale figure would have over-weighted the pilot batch.
+
+### Retest batch
+
+45 rows, seed 44, stratified by batch only. The blank file exposes **only**
+`retest_id` and `text`; IDs are assigned after shuffling so position reveals nothing.
+Verified: 1:1 mapping to 45 distinct golden rows, **text identity 45/45**, zero label
+cells filled, no `annotation_id` or `conversation_id` string appears anywhere in the
+file, and a rebuild attempt is refused.
+
+**Timing limitation, recorded now rather than at reporting time.** Originals were
+labelled 2026-09-15 (b01 20:26, b02 22:43). The retest is held until **2026-09-22**.
+Seven days is a real gap but a short one for 45 items seen that recently, so the
+resulting figure measures *consistency plus residual memory*. Combined with it being
+self-agreement rather than between two people, and with possible reviewer-suggestion
+influence on the originals, the number is an **upper bound** on reliability and must
+be reported as intra-annotator test-retest agreement - never as inter-annotator
+agreement. Full detail in D40.
+
+### Next step
+
+Wait for the gap, then label `golden/retest_r01_blank.csv`. No classifier, retrieval,
+generation, escalation or judge work until the agreement analysis is done.

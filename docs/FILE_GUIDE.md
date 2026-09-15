@@ -290,6 +290,37 @@ centroids or a dominant cluster. `--k` overrides it. K is ultimately a human cal
 
 ---
 
+### `src/build_golden_set.py` 🔴
+
+**Purpose:** Merge both labelled batches into the frozen 248-row golden set, attach
+provenance, build both exclusion lists, and run leakage validation.
+
+**Key functions:** `build_golden_frame` (deterministic order by `batch`,
+`annotation_id`; renames `text_display`->`text` and `is_ambiguous`->`ambiguous`) ·
+`jaccard_overlaps` 🔴 (exact near-duplicate search over 248 x 24,239, pruned by a
+length band derived from the Jaccard threshold - **no sampling**, so the single
+cross-customer duplicate could not be missed) · `leakage_report` ·
+`write_exclusion_list` / `write_customer_exclusion_list`.
+
+**Read this for the interview:** the length-band pruning in `jaccard_overlaps`. A
+Jaccard of at least *t* forces the two token sets' sizes to sit within
+`[t*|A|, |A|/t]`, which is what makes an exact all-pairs check affordable.
+
+---
+
+### `src/build_retest_batch.py` 🔴
+
+**Purpose:** Draw 45 rows from the frozen golden set for intra-annotator test-retest.
+
+**Why it matters:** this file's whole job is *withholding* information. `select_rows`
+shuffles **before** assigning `rt_001...rt_045`, so ordinal position cannot leak
+batch or original order. `write_blank` emits only `retest_id` and `text`. `verify`
+asserts text identity 45/45 against the mapped golden rows - the check that proves
+the retest is being run against the right examples. The builder refuses to overwrite
+a frozen batch.
+
+---
+
 ### `src/build_annotation_batch.py` 🔴
 
 **Purpose:** Phase 5a. Draw a stratified sample of AmericanAir opening messages and
@@ -384,6 +415,11 @@ reports deliberately avoid dumping full tweet text.
 | `golden/annotation_guidelines.md` | **Hand-written.** Labelling rules and pre-declared revision triggers |
 | `golden/README.md` | **Hand-written.** Why `golden/` is tracked in Git and how labels may be used |
 | `golden/b01_pilot_labelled.csv` | **Written by the annotator.** No code writes to this path |
+| `golden/b02_fresh_labelled.csv` | **Written by the annotator.** 100 independent rows under frozen v2 |
+| `golden/golden_set_v1.csv` | Derived merge of both batches, 248 rows. **Frozen** |
+| `golden/golden_exclusion_ids.txt` | 248 conversation IDs - layer 1 of downstream exclusion |
+| `golden/golden_customer_exclusion_ids.txt` | 248 customer IDs - layer 2. Neither layer catches cross-customer duplicates; see D39 |
+| `golden/retest_r01_blank.csv` | 45 opaque rows for intra-annotator retest. **Frozen**; builder refuses to overwrite |
 
 `golden/` is the one directory deliberately **not** gitignored — hand labels cannot
 be regenerated from code. See D27.
