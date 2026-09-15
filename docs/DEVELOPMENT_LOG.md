@@ -1027,3 +1027,186 @@ the Phase 1 sample profile afterwards and diffed it: the only differing value is
 
 Phase 4 brand selection can now use real reconstructed statistics instead of the
 1-hop approximations from Phase 1.
+
+---
+
+## Phase 3 — Brand selection
+
+**Date:** 2026-09-15
+**Status:** Complete
+**Objective:** Choose one brand using measured evidence. Intent discovery explicitly
+out of scope.
+
+### What I built
+
+`src/analyze_brands.py`, run as `python -m src.analyze_brands --source sample|full`.
+Loads Phase 2 output, streams turns for DM/URL/language signals, computes per-brand
+metrics, applies four gates, scores the survivors, and summarises the chosen corpus.
+
+### The finding that changed the answer
+
+I was ready to recommend **AmazonHelp**. It leads on nearly every headline metric:
+78,763 clean conversations (three times the next English candidate), 1.5% DM
+deflection, 46.3% of conversations reaching 4+ turns, highest lexical diversity.
+
+Then I read actual opening messages and found Japanese, German and Spanish.
+Quantifying it:
+
+| Brand | CJK | Non-English words | **Any signal** |
+| --- | --- | --- | --- |
+| **AmazonHelp** | **8.4%** | **9.7%** | **18.1%** |
+| AppleSupport | 0.1% | 1.6% | 1.7% |
+| AmericanAir | 0.0% | 0.8% | 0.8% |
+| Delta | 0.0% | 0.2% | 0.2% |
+
+@AmazonHelp is a global multilingual handle. Roughly one message in five is not
+English, against under 2% for every other candidate.
+
+This also exposed a mistake I nearly made: I had been reading AmazonHelp's high
+type-token ratio as *issue diversity*. Much of it is **foreign vocabulary**, not
+richer support topics. Had I not sampled the raw text, I would have recommended a
+brand on a metric I had misinterpreted.
+
+### DM deflection: verifying my own measurement change
+
+I changed the DM regex between phases (added `pm us`, `inbox`) *and* changed the unit
+from per-tweet to per-conversation. Two changes at once would make the comparison
+with Phase 1 meaningless, so I measured both patterns separately:
+
+| Brand | Phase 1 per-tweet | Conversation, old pattern | Conversation, new pattern |
+| --- | --- | --- | --- |
+| Tesco | 26.8% | **54.5%** | 54.5% |
+| AppleSupport | 52.5% | **64.4%** | 64.4% |
+| Delta | 16.4% | **25.5%** | 25.5% |
+
+**The pattern change accounts for 0.3 percentage points at most.** The entire
+increase comes from the unit change — which is the correct unit. Tesco is 26.8% of
+*tweets* but 54.5% of *conversations*, because one DM redirect anywhere in a thread
+makes that whole resolution invisible.
+
+### Problem encountered #13 — booleans printed as 0 and 1
+
+**Symptom:** The `passes_all_gates` column rendered as `0` instead of `False`.
+
+**Root cause:** My table renderer checked `isinstance(value, (int, np.integer))`
+before handling booleans. In Python `bool` is a **subclass of `int`**, so `False`
+matched the integer branch and was formatted with a thousands separator, giving `0`.
+
+**How I fixed it:** Check `bool` first and render `yes`/`no`. Ordering matters
+whenever a type check involves `bool` and `int` together.
+
+### Problem encountered #14 — KeyError on an unanalysed brand
+
+**Symptom:** The full run crashed with `KeyError: 'ATT'`.
+
+**Root cause:** I collect turn signals for the top 25 brands only, but
+`brand_metrics` grouped over **all** clean conversations. Brand `ATT` sits outside
+the top 25, so it had no entry in the language counters.
+
+**How I fixed it:** Filter the conversations to the analysed brand set before
+grouping. Without the filter, brands outside the top 25 would have joined to null
+signals and produced meaningless rows — so this was a correctness bug, not just a
+crash.
+
+**Note:** the sample harness did **not** catch this one, because the 93-row sample
+has only 12 brands and all fall inside the top 25. The full run caught it. The
+harness is valuable but not sufficient.
+
+### Gate results
+
+| Gate | Threshold | Brands failing |
+| --- | --- | --- |
+| G1 Volume | >= 8,000 clean conversations | 0 of the top 25 |
+| G2 Public resolution | DM deflection < 40% | 12 |
+| G3 Language | >= 95% English | 2 (AmazonHelp 81.9%, AskPlayStation 94.4%) |
+| G4 Support purity | < 5% brand-rooted | 1 (Safaricom_Care 6.65%) |
+
+Eleven brands passed all four. Notably eliminated: **AppleSupport** (64.4% DM,
+second-largest brand in the dataset), comcastcares (87.8%), TMobileHelp (88.8%),
+UPSHelp (74.5%), Tesco (54.5%).
+
+### The score disagreed with the decision, and that is reported
+
+The computed weighted score ranks:
+
+| Rank | Brand | Score |
+| --- | --- | --- |
+| 1 | GWRHelp | 0.634 |
+| 2 | VirginTrains | 0.604 |
+| 3 | Delta | 0.602 |
+| 6 | **AmericanAir** | **0.569** |
+
+**I did not adjust the weights to make AmericanAir win.** The reason for overriding
+the ranking is written in D23: min-max normalisation rewards whichever brand is most
+*extreme* on the heaviest criterion, and GWRHelp's 2.6% DM deflection nearly maxes
+the 30% public-resolution weight by itself. But GWRHelp is a regional train operator
+with 9,577 conversations and an opening vocabulary of `train, paddington, late,
+ticket, delayed, cancelled` — roughly four intents and a trivial classifier. The
+type-token ratio does not capture "narrow domain" well enough to offset this.
+
+This is a concrete, honest example of a composite metric pointing the wrong way, and
+it will be reused in the Phase 17 discussion of misleading headline numbers.
+
+### Selected corpus — AmericanAir
+
+| Metric | Value |
+| --- | --- |
+| Clean conversations | 24,429 |
+| Clean turns | 74,593 (41,460 customer / 33,133 brand) |
+| Customer-rooted conversations | 24,239 |
+| Retrieval pool | 24,178 |
+| Candidate opening messages | 24,239 |
+| Multi-turn (4+) | 6,704 |
+| Two-turn | 14,809 |
+| Truncated | 126 |
+| Median turns / duration | 2.0 / 20.1 min |
+| DM deflection / URL rate | 21.1% / 8.3% |
+
+### A temporal finding that matters for Phase 6
+
+The report shows "17 months covered", which is misleading in exactly the way this
+project keeps running into. The monthly distribution:
+
+| Month | Conversations |
+| --- | --- |
+| 2014-11 to 2017-09 | 51 combined |
+| 2017-10 | 11,854 |
+| 2017-11 | 11,440 |
+| 2017-12 | 1,084 |
+
+**99.8% of AmericanAir conversations fall in October-December 2017.** A temporal
+split will span weeks, not months. Phase 6 must account for this rather than quoting
+the 17-month figure.
+
+### Verification
+
+| Check | Result |
+| --- | --- |
+| Sample harness | Runs; gates evaluate; empty-survivor case handled |
+| Clean conversations vs Phase 2 | 24,429 == 24,429 |
+| Clean turns vs Phase 2 | 74,593 == 74,593 |
+| Customer + brand turns == clean turns | True |
+| Truncated count vs Phase 2 | 126 == 126 |
+| Determinism | **byte-identical SHA-256 on re-run** |
+| Raw data | Unchanged: 516,508,641 bytes, read-only, dated 2019 |
+| Phase 1/2 source | Untouched - `git status src/` shows only the new file |
+
+Determinism is clean because no environment-dependent value (free disk, timestamps)
+is written into the output.
+
+### Limitations
+
+- Language measurement is a **heuristic**, not a detector. It misses unaccented
+  non-English text and may flag English tweets quoting foreign words. Accented
+  characters are reported but deliberately excluded from the gate, because English
+  tweets routinely contain them.
+- Type-token ratio is a crude diversity proxy, measured on a fixed budget of 5,000
+  openings per brand so that brands with different volumes stay comparable.
+- DM deflection detects the *redirect*, not whether the issue was truly resolved
+  privately.
+- The top 25 brands cover 71.4% of all clean conversations; smaller brands were not
+  analysed.
+
+### Next step
+
+Intent discovery on the AmericanAir corpus: 24,239 customer-rooted opening messages.

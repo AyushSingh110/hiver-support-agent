@@ -498,4 +498,101 @@ silently.
 
 ---
 
+## D22 — AmericanAir is the selected brand
+
+**Decision:** Build the support agent for **@AmericanAir**. Brand evaluation stops
+here; later phases use this corpus.
+
+**Problem:** One brand must be chosen from 108 support accounts, and dataset size is
+the obvious but wrong criterion.
+
+**Alternatives considered:** AmazonHelp, AppleSupport, Delta, British_Airways,
+SouthwestAir, GWRHelp, and 19 others measured in full.
+
+**Chosen:** AmericanAir — 24,429 clean conversations, 24,178 usable for retrieval.
+
+**Why:**
+
+- **Public resolution.** 21.1% conversation-level DM deflection, the lowest of the
+  large English candidates. The assignment requires replies grounded in how the brand
+  *historically resolved* issues; if the fix happened in DM that evidence does not
+  exist.
+- **Lowest URL rate in the shortlist — 8.3%.** AmericanAir answers in prose rather
+  than deflecting to a help page. Delta is 23.5%, AmazonHelp 65.6%. Prose replies are
+  far better grounding material than a link.
+- **Volume.** 24,429 conversations supports a 150-250 golden set, a disjoint
+  retrieval corpus and held-out evaluation.
+- **Diversity.** Airline support spans delays, baggage, seating, booking changes,
+  check-in, refunds and loyalty — enough for a meaningful 8-12 intent taxonomy.
+- **Language.** 99.2% English by the heuristic.
+
+**Why AmazonHelp was rejected despite being three times larger:** it leads on
+almost every headline metric — most conversations (78,763), lowest DM deflection
+(1.5%), deepest threads (46.3% with 4+ turns), highest measured diversity. But
+**18.1% of its opening messages are not English** (8.4% CJK, 9.7% non-English
+function words) against ≤1.7% for every other candidate. @AmazonHelp is a global
+multilingual handle. That would confound intent classification, retrieval and
+LLM-judging simultaneously. It also has a 65.6% URL rate, so many replies are links
+rather than answers. Its apparent diversity advantage is partly an artifact of
+foreign vocabulary inflating the type-token ratio, not richer support topics.
+
+**Why Delta was not selected:** genuinely close — 24,799 conversations, 99.8%
+English, and *more* brand engagement (32.3% of conversations have 2+ brand turns
+against AmericanAir's 25.8%). It loses on two measurements: DM deflection 25.5% vs
+21.1%, and URL rate 23.5% vs 8.3%. The URL gap decided it. Delta remains a
+defensible alternative and the two sit within noise of each other.
+
+**Tradeoffs and limitations:**
+
+- Median conversation is 2 turns; only 27.4% reach 4+ turns. Many exchanges are a
+  single question and a single reply.
+- 21.1% of conversations still deflect to DM, so those resolutions are invisible.
+- **Temporal concentration:** despite 17 months of nominal coverage, 99.8% of
+  conversations fall in Oct-Dec 2017. A temporal split will span weeks, not months.
+- Airline support is a specific domain; conclusions will not transfer to, say,
+  software support.
+- Language measurement is a heuristic, not a detector.
+
+**Consequence:** Phases 4 onward operate on 24,429 clean AmericanAir conversations —
+24,239 customer-rooted opening messages and a 24,178-conversation retrieval pool.
+
+---
+
+## D23 — Gates before scoring, and the score is not the decision
+
+**Problem:** A single weighted score can be dragged upward by strengths that do not
+compensate for a disqualifying weakness.
+
+**Alternatives:** (a) rank purely by weighted score; (b) pick by judgement;
+(c) hard screening gates first, then score only the survivors.
+
+**Chosen:** (c). Four gates — volume, DM deflection, language, support purity — then
+a weighted score over survivors, with all raw metrics published.
+
+**Why:** AmazonHelp is the proof. It would rank at or near the top of any weighted
+score built from headline metrics, while failing a gate that makes it unusable. Gates
+express "this is disqualifying" in a way a weighted average cannot.
+
+**The honest result, recorded because it matters:** the computed score does **not**
+rank AmericanAir first. It ranks **GWRHelp first (0.634)**, then VirginTrains
+(0.604), Delta (0.602), and **AmericanAir sixth (0.569)**.
+
+The score was not adjusted to make the chosen brand win. The reason to override it:
+min-max normalisation within the surviving set rewards whichever brand is most
+*extreme* on the heaviest criterion. GWRHelp's 2.6% DM deflection nearly maxes the
+30% public-resolution weight on its own. But GWRHelp is a regional UK train operator
+with 9,577 conversations and a narrow issue space — its opening vocabulary is
+`train, paddington, late, ticket, delayed, cancelled`. That yields perhaps four
+intents and a trivial classifier. The type-token ratio, at 15%, does not capture
+"narrow domain" well enough to offset this.
+
+**Tradeoff:** Overriding a computed ranking requires justification, which is why it
+is written here in full rather than buried.
+
+**Consequence:** The decision rests on the gates plus named measurements (volume,
+URL rate, domain breadth), with the score as a cross-check that visibly disagreed.
+This is the concrete example behind "what is misleading about my headline number?"
+
+---
+
 *Further decisions are appended as later phases are implemented.*

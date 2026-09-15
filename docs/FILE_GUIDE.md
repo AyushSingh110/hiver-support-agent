@@ -192,6 +192,53 @@ independent corroboration, and it returned 100.0%.
 
 ---
 
+### `src/analyze_brands.py` 🔴
+
+**Purpose:** Phase 3. Select one brand from measured evidence. Intent discovery is
+**not** part of this file.
+
+**Inputs:** `data/processed/conversations.parquet`,
+`data/processed/conversation_turns.parquet`.
+
+**Outputs:** `reports/phase3_brand_analysis.md`, `reports/phase3_brand_stats.json`.
+
+**Dependencies:** pandas, numpy, pyarrow, `src.config`.
+
+#### Functions that matter
+
+**`collect_turn_signals` 🔴 — where the decisive measurements come from.**
+Streams the turns table once and produces two things: per-conversation flags (does
+**any** brand turn ask for a DM, does any contain a URL, mean reply length) and
+per-brand opening-message signals (language, vocabulary). The DM flag is
+**conversation-level** — one redirect anywhere makes the whole resolution invisible,
+which is why this differs so much from Phase 1's per-tweet figure. Note the fixed
+`TTR_SAMPLE_SIZE` budget: type-token ratio falls as sample size grows, so brands with
+very different volumes would not otherwise be comparable.
+
+**`apply_gates` 🔴 — screening before scoring.**
+Four boolean gates. Deliberately separate from scoring, because some weaknesses are
+disqualifying no matter how strong a brand looks elsewhere. AmazonHelp is the proof:
+it would top any weighted score while being unusable at 18.1% non-English.
+
+**`score_candidates` 🔴 — and why it must not be trusted alone.**
+Min-max normalises each criterion **within the surviving set**, then applies weights.
+Normalising within survivors means the score rewards whichever brand is most
+*extreme* on the heaviest criterion — which is exactly why it ranks GWRHelp first and
+the selected brand sixth. Read D23 before quoting this score; the disagreement is
+recorded rather than tuned away.
+
+**`brand_metrics` 🟡.** Assembles the per-brand table. Note it filters conversations
+to the analysed brand set first — without that, brands outside the top 25 join to
+null signals and produce meaningless rows.
+
+**`summarise_selected_brand` 🟡.** Produces the corpus handed to the next phase,
+including the monthly distribution that reveals the temporal concentration.
+
+**Constants worth knowing:** `SELECTED_BRAND`, the four gate thresholds,
+`SCORING_WEIGHTS`, `DM_PATTERN`, `TTR_SAMPLE_SIZE`.
+
+---
+
 ## Documentation
 
 | File | Purpose | Priority |

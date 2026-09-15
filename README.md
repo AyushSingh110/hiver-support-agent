@@ -23,8 +23,37 @@ The project is built **evaluation-first**: the proof matters more than the syste
 
 ## 3. Selected brand
 
-**Not yet selected.** Phase 1 produced a shortlist; Phase 4 makes the decision using
-reconstructed-conversation statistics. See `reports/phase1_profile.md`.
+**@AmericanAir** — 24,429 clean conversations, 24,178 usable for retrieval.
+
+Chosen by four screening gates (volume, public resolution, language, support purity)
+applied to the 25 largest brands, then a weighted score over the 11 survivors.
+
+| | AmericanAir | Delta | AmazonHelp |
+| --- | --- | --- | --- |
+| Clean conversations | 24,429 | 24,799 | 78,763 |
+| DM deflection | **21.1%** | 25.5% | 1.5% |
+| URL rate | **8.3%** | 23.5% | 65.6% |
+| English (heuristic) | 99.2% | 99.8% | **81.9%** |
+
+**Why not AmazonHelp, despite being three times larger?** It leads on nearly every
+headline metric — but **18.1% of its opening messages are not English** (it is a
+global handle), against under 2% for every other candidate. That would confound
+intent classification, retrieval and LLM-judging at once. Its 65.6% URL rate also
+means many replies are links rather than answers.
+
+**Why not Delta?** Very close, and defensible. AmericanAir wins on DM deflection
+(21.1% vs 25.5%) and decisively on URL rate (8.3% vs 23.5%) — it answers in prose,
+which is better material to ground a generated reply in.
+
+**Honest note:** the weighted score does *not* rank AmericanAir first — it ranks
+GWRHelp first and AmericanAir sixth. The weights were not adjusted to change that.
+GWRHelp's near-zero DM deflection dominates the heaviest criterion, but it is a
+regional train operator with 9,577 conversations and roughly four distinguishable
+intents. The full reasoning is in `docs/DECISION_LOG.md` (D22, D23).
+
+**Dataset size alone is the wrong criterion**: AppleSupport is the second-largest
+brand in the corpus and is unusable, because 64.4% of its conversations get pushed
+to DM where the resolution is invisible.
 
 ## 4. Dataset
 
@@ -88,7 +117,22 @@ Reconstruction runs in ~1 minute and is byte-for-byte deterministic.
 
 ## 7. Intent taxonomy
 
-*(Phase 5. Not started.)*
+*(Next phase. Not started.)* Input is ready: **24,239 customer-rooted opening
+messages** from AmericanAir.
+
+```
+Raw tweets (2.81M)
+    -> Conversation reconstruction   [done]  798,197 components, 741,110 clean
+    -> Brand selection               [done]  AmericanAir, 24,429 conversations
+    -> Intent discovery              [next]
+    -> Historical resolution corpus
+    -> Response generation + escalation
+    -> Evaluation
+```
+
+**One constraint discovered in Phase 3:** despite 17 months of nominal coverage,
+99.8% of AmericanAir conversations fall in Oct–Dec 2017. Any temporal split will
+span weeks, not months.
 
 ## 8. Architecture
 
