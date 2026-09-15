@@ -21,3 +21,5 @@ dependencies:
   - pandas=3.0.*
   - numpy=2.4.*
   - pyarrow=23.0.*
+  # Phase 4: TF-IDF, TruncatedSVD, KMeans. Pulls scipy.
+  - scikit-learn=1.9.*

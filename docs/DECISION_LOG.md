@@ -595,4 +595,95 @@ This is the concrete example behind "what is misleading about my headline number
 
 ---
 
+## D24 — scikit-learn added; embeddings deliberately not
+
+**Problem:** Intent discovery needs TF-IDF, dimensionality reduction and clustering.
+The environment had only pandas, numpy and pyarrow.
+
+**Alternatives:** (a) hand-roll TF-IDF and Lloyd's algorithm in numpy;
+(b) add scikit-learn; (c) jump straight to sentence-transformers.
+
+**Chosen:** (b). scikit-learn 1.9.0 (pulls scipy 1.17.1) into the existing `hiver`
+environment. No second environment, no torch, no embedding model, no LLM.
+
+**Why:** Hand-rolling means reimplementing sublinear TF scaling, sparse handling,
+k-means++ init and randomized SVD — more code and more bug surface than importing a
+standard library, which contradicts the simplicity rule rather than serving it.
+Embeddings were not chosen up front because the cheap method had not yet been shown
+to fail; paying 2-3 GB of a constrained disk before evidence would be premature.
+
+**Tradeoff:** ~1.7 GB of disk (8.7 GB free before, 7.0 GB after).
+
+**Consequence:** Phase 4 runs in 0.64 minutes on 24,190 messages.
+
+---
+
+## D25 — TF-IDF clustering reported as inadequate rather than escalated
+
+**Problem:** The approved plan said that if TF-IDF proved inadequate I should stop
+and show the evidence before proposing embeddings. It did prove inadequate.
+
+**The evidence:**
+
+| Measure | Result |
+| --- | --- |
+| SVD explained variance, 100 components | **16.56%** |
+| Silhouette, every K from 6 to 20 | **0.037 - 0.054** |
+| Largest cluster at the best K (20) | **38.3%** |
+| Largest cluster at K=6 | 53.5% |
+| ARI between preprocessing variants | **0.37** |
+| Corpus in plausibly coherent clusters | **37.0%** |
+| Corpus in `fly`/`flying`/`travel`/`way` clusters | **11.0%** |
+
+Plus three qualitative failures: the same intent split across clusters (delays in 5
+and 17; complaints in 8 and 14), a language appearing as if it were an intent
+(cluster 18 is Spanish), and cluster 11 holding 15.2% of the corpus while its
+distinctive terms disagree with its own centroid-nearest messages.
+
+**Alternatives:** (a) tune preprocessing and K until the numbers look better;
+(b) quietly switch to embeddings; (c) report the failure and stop.
+
+**Chosen:** (c).
+
+**Why:** (a) is metric-gaming — the instruction was explicit not to optimise for a
+nicer-looking result, and a tuned partition would still be lexical. (b) would hide
+the most useful finding in the phase. TF-IDF measures **word overlap**, and the
+corpus is short, informal, emoji-laden and paraphrase-heavy: *"bag never showed up"*
+and *"luggage missing"* share no tokens. That is a property of the data, not a
+tuning problem.
+
+**Tradeoff:** Phase 4 ends without a validated taxonomy. That was never promised.
+
+**Consequence:** The taxonomy is authored from **recurring term evidence**, which is
+reliable, rather than from the cluster partition, which is not. The embeddings
+decision is deferred to a human with the evidence in hand.
+
+---
+
+## D26 — Taxonomy kept in a separate hand-authored file
+
+**Problem:** The three layers (unsupervised cluster, human interpretation, proposed
+intent) must stay distinguishable. Putting all three in one generated report makes
+the boundary cosmetic — and a re-run would overwrite the human work.
+
+**Alternatives:** (a) hardcode the taxonomy into the script so it appears in the
+generated report; (b) append it to the generated report after each run; (c) keep it
+in a separate hand-authored file.
+
+**Chosen:** (c). `reports/phase4_intent_discovery.md` is machine output;
+`reports/phase4_candidate_taxonomy.md` is hand-written and states so at the top.
+
+**Why:** Hardcoding interpretation into a script would make an authored judgement
+look like a computed result — the exact confusion this phase is meant to avoid. A
+separate file makes the boundary structural: one file is reproducible from code, the
+other is a person's reading of it.
+
+**Tradeoff:** Two files instead of one; the taxonomy is not regenerated on re-run,
+which is the intended behaviour.
+
+**Consequence:** The taxonomy is explicitly marked UNVALIDATED and carries its own
+open questions, so no later phase can mistake it for a validated result.
+
+---
+
 *Further decisions are appended as later phases are implemented.*

@@ -1210,3 +1210,126 @@ is written into the output.
 ### Next step
 
 Intent discovery on the AmericanAir corpus: 24,239 customer-rooted opening messages.
+
+---
+
+## Phase 4 — Intent discovery
+
+**Date:** 2026-09-15
+**Status:** Complete, with an honest negative result
+**Objective:** Find the natural issue structure in AmericanAir opening messages.
+Discovery only — no classifier, no retrieval, no golden set.
+
+### What I built
+
+`src/discover_intents.py`: load openings, normalise, TF-IDF, TruncatedSVD, KMeans
+sweep, cluster description, quality checks, normalisation-sensitivity check.
+
+### Dependency added
+
+`scikit-learn 1.9.0` (with `scipy 1.17.1`) into the existing `hiver` environment.
+Verified the interpreter path is `anaconda3\envs\hiver\python.exe`, so nothing landed
+globally. Disk went from 8.7 GB to 7.0 GB free. No torch, no sentence-transformers,
+no Ollama, no LLM.
+
+### Count discrepancy, reported rather than hidden
+
+Phase 3 established **24,239** customer-rooted openings. Phase 4 clustered
+**24,190**. The difference is **49 messages that normalise to an empty string** —
+tweets consisting only of a mention, a URL, or both, for example `@AmericanAir
+https://t.co/xyz`. They carry no text to cluster. They are counted and reported, not
+silently dropped, and they remain in the corpus for later phases.
+
+### The headline result: the clustering is weak
+
+I did not get a clean intent structure, and the honest reporting of that is the main
+output of this phase.
+
+| Measure | Result | Reading |
+| --- | --- | --- |
+| SVD explained variance (100 components) | **16.56%** | The reduced space keeps little signal |
+| Silhouette, every K from 6 to 20 | **0.037 - 0.054** | Essentially no separation |
+| Largest cluster at K=20 | **38.3%** | One cluster swallows a third of the corpus |
+| Largest cluster at K=6 | 53.5% | Worse at low K |
+| ARI between preprocessing variants | **0.37** | Structure is preprocessing-dependent |
+| Corpus in plausibly coherent clusters | **37.0%** | Under half lands somewhere meaningful |
+| Corpus in `fly`/`flying`/`travel`/`way` clusters | **11.0%** | Split by verb form, not by issue |
+
+Three qualitative failures matter as much as the numbers:
+
+1. **One intent split across clusters.** Delays appear as cluster 5
+   (`delayed, flight delayed, hours`) *and* cluster 17 (`hour delay, waiting,
+   tarmac, sitting`). Complaints split across clusters 8 and 14. Same meaning,
+   different words, different clusters.
+2. **A language masquerading as an intent.** Cluster 18 (226 messages, 0.93%) is
+   Spanish — `en, que, la, el, por, vuelo`. It has the *highest* cohesion in the run
+   (0.871). It is not an intent. Usefully, 0.93% closely matches the 0.8%
+   non-English signal the Phase 3 heuristic estimated for AmericanAir, so the two
+   independent measurements corroborate each other.
+3. **Terms disagreeing with contents.** Cluster 11 holds 15.2% of the corpus and its
+   distinctive terms are `cancelled, connecting flight, miss`. But its
+   centroid-nearest messages are travel photos, in-flight biscuits and a poll about
+   movie watching. The label the terms imply is not what the cluster contains.
+
+**Why this happens:** TF-IDF measures **word overlap**. These messages are short,
+informal, emoji-heavy and full of paraphrase. *"bag never showed up"* and *"luggage
+missing"* share no tokens at all, so no amount of tuning will place them together.
+That is a property of the data, not a parameter problem.
+
+**What I did not do:** tune preprocessing and K until the numbers looked better. The
+instruction was explicit, and a tuned partition would still be lexical. Recorded as
+D25.
+
+### What did work
+
+The **vocabulary evidence is genuinely informative**, even though the partition is
+not. Cluster 2 (1,128 messages, 4.66%) is the standout: terms
+`bag, check bag, carry, checked, overhead, space` and the messages agree completely.
+Boarding (cluster 1), seats and upgrades (3 and 16) and basic economy (15) are also
+coherent. So recurring issue vocabulary is trustworthy; the assignment of every
+message to exactly one cluster is not.
+
+### Problem encountered #15 — MKL memory-leak warning on Windows
+
+**Symptom:** Every KMeans call printed `UserWarning: KMeans is known to have a memory
+leak on Windows with MKL, when there are less chunks than available threads.`
+
+**Root cause:** A known interaction between scikit-learn's KMeans and Intel MKL when
+thread count exceeds the number of data chunks.
+
+**How I fixed it:** `os.environ.setdefault("OMP_NUM_THREADS", "2")` at the very top
+of the module, before the sklearn import — it has no effect if set afterwards. This
+also helps determinism: thread count changes float summation order, which can perturb
+KMeans results slightly.
+
+### Verification
+
+| Check | Result |
+| --- | --- |
+| Sample harness (500 real openings) | Passed; exercised the full path |
+| Messages loaded | 24,190 of 24,239 (49 empty, reported) |
+| TF-IDF matrix | 24,190 x 8,126, 99.9% sparse |
+| `flight` retained in vocabulary | **yes** - `max_df` kept it, as agreed |
+| Agent signatures in customer openings | 2 (effectively absent, as expected) |
+| URL-driven clusters | none |
+| Format/length-driven clusters | none |
+
+The sample harness used the first 500 real AmericanAir openings rather than the
+Phase 2 `_sample` files, because **AmericanAir does not appear in the 93-row sample
+at all** — Phase 3 had already reported it as "not present in this source".
+
+### Limitations
+
+- TF-IDF is lexical, not semantic, and cannot match paraphrases.
+- KMeans assigns every message to a cluster, including genuine noise, and prefers
+  spherical similar-sized groups; real intent distributions are neither.
+- Silhouette on sparse text is weak and is reported only for comparison across K.
+- No ground truth exists, so nothing is validated.
+- Opening messages only; issues raised later in a conversation are invisible.
+
+### Next step
+
+A decision is needed before proceeding: accept a taxonomy authored from term
+evidence, or invest in embeddings to get a better partition. The evidence for that
+decision is in `reports/phase4_intent_discovery.md` and D25. I have deliberately not
+chosen.

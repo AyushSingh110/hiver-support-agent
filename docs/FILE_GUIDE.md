@@ -239,6 +239,65 @@ including the monthly distribution that reveals the temporal concentration.
 
 ---
 
+### `src/discover_intents.py` 🔴
+
+**Purpose:** Phase 4. Discover issue structure in AmericanAir opening messages.
+Produces **discovery artifacts, not intents**.
+
+**Inputs:** `data/processed/conversations.parquet`,
+`data/processed/conversation_turns.parquet`.
+
+**Outputs:** `reports/phase4_intent_discovery.md`, `reports/phase4_intent_stats.json`.
+
+**Dependencies:** pandas, numpy, pyarrow, **scikit-learn**, `src.config`.
+
+**Note the first three lines of the file:** `OMP_NUM_THREADS` is set *before* the
+sklearn import. It has no effect afterwards. It suppresses the MKL KMeans leak on
+Windows and stabilises float summation order across runs.
+
+#### Functions that matter
+
+**`normalise_message` 🔴 — every downstream number depends on it.**
+HTML unescape, URL removal, mention stripping, hashtag-word retention, whitespace
+collapse, lowercase. No stemming. Small function, large consequences: the
+normalisation-sensitivity check shows ARI of only **0.37** between this and a
+variant, so these choices materially change the cluster structure.
+
+**`describe_cluster` 🔴 — where a cluster becomes interpretable.**
+Returns size, cohesion, distinctive terms, 8 centroid-nearest messages **and 3
+seeded-random members**. The random sample exists so representative examples cannot
+be cherry-picked — and it earned its place: cluster 11's nearest-centroid messages
+turned out to contradict its own distinctive terms.
+
+**`distinctive_terms` 🔴.** Ranks terms by *lift* — mean weight inside the cluster
+minus outside — rather than raw weight. Raw weight would surface corpus-wide common
+words in every cluster and make them all look alike.
+
+**`sweep_k` 🟡.** Runs K ∈ {6,8,10,12,15,20} and reports inertia, silhouette, size
+distribution and max centroid similarity. **Silhouette on sparse text is weak** —
+it never exceeded 0.054 here — so it is reported for comparison across K, never as
+evidence that clusters are meaningful.
+
+**`quality_checks` 🟡.** Screens for generic, URL-driven and format-driven clusters,
+over-broad and tiny clusters, and agent signatures.
+
+**`normalisation_sensitivity` 🟡.** Re-clusters with different preprocessing and
+reports ARI against the main partition. This produced one of the phase's most
+important numbers.
+
+**`pick_k` ⚪.** A default starting point only — prefers a K without near-duplicate
+centroids or a dominant cluster. `--k` overrides it. K is ultimately a human call.
+
+---
+
+## Reports that are hand-authored, not generated
+
+| File | Nature |
+| --- | --- |
+| `reports/phase4_candidate_taxonomy.md` | **Hand-written.** Not produced by any script. The human-interpretation layer, kept separate so an authored judgement is never mistaken for a computed result. Marked UNVALIDATED. See D26. |
+
+---
+
 ## Documentation
 
 | File | Purpose | Priority |

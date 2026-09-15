@@ -117,8 +117,24 @@ Reconstruction runs in ~1 minute and is byte-for-byte deterministic.
 
 ## 7. Intent taxonomy
 
-*(Next phase. Not started.)* Input is ready: **24,239 customer-rooted opening
-messages** from AmericanAir.
+**Discovery done; taxonomy proposed but UNVALIDATED.** 24,190 opening messages
+clustered (49 of the 24,239 normalise to empty — mention-plus-URL only).
+
+**The clustering is weak, and that is reported rather than tuned away.** TF-IDF +
+SVD + KMeans gave 16.56% explained variance, silhouette of 0.037–0.054 across every
+K from 6 to 20, one cluster holding 38.3% of the corpus, and an ARI of only 0.37
+between preprocessing variants. Only ~37% of messages land in plausibly coherent
+clusters. TF-IDF matches word overlap, and *"bag never showed up"* shares no tokens
+with *"luggage missing"*.
+
+What *is* reliable is the recurring issue vocabulary — baggage, delays,
+cancellations, boarding, seats and upgrades, fare rules, staff conduct. The candidate
+taxonomy is authored from that evidence and lives in
+`reports/phase4_candidate_taxonomy.md`, hand-written and explicitly marked
+unvalidated.
+
+Next decision: accept a vocabulary-derived taxonomy, or invest in embeddings for a
+better partition. Evidence in `docs/DECISION_LOG.md` D25.
 
 ```
 Raw tweets (2.81M)
