@@ -16,6 +16,11 @@ GOLDEN_DIR = config.PROJECT_ROOT / "golden"
 
 TAXONOMY_VERSION = "v2"
 
+# Triggers only mean something when the labels were produced independently of the
+# taxonomy. v2 was written after reading this batch, so evaluating them here would be
+# circular. The valid v1 evaluation is preserved in reports/*_v1_historical.*
+EMIT_TRIGGER_EVALUATION = False
+
 TAXONOMY_INTENTS = [
     "flight_delay",
     "flight_cancellation_rebooking",
@@ -291,7 +296,11 @@ def render_report(stats: dict, random_table, targeted_table, pairs, triggers, re
         f"**{stats.get('taxonomy_version', 'v1')}**. The annotator's file is opened "
         "read-only and is never modified.",
         "",
-        "> **This is a retrospective re-description, NOT taxonomy validation.**",
+        "> **Taxonomy v2 is FROZEN for the golden set** (`golden/taxonomy_v2.md`). Its "
+        "label set and definitions will not change while the golden set is annotated, so "
+        "labels cannot be tuned to the evaluation.",
+        ">",
+        "> **This analysis is a retrospective re-description, NOT taxonomy validation.**",
         ">",
         "> The taxonomy v2 boundaries were written **after** reading these rows, and the "
         "rows were then relabelled against them. Measuring those boundaries on the same "
@@ -388,28 +397,23 @@ def render_report(stats: dict, random_table, targeted_table, pairs, triggers, re
         "",
         "## 5. Taxonomy health",
         "",
-        "See the per-intent tables in section 2. Trigger evaluation, against thresholds declared "
-        "in `docs/DECISION_LOG.md` D29 **before any label existed**:",
+        "See the per-intent tables in section 2 for distribution, confidence spread and "
+        "flag rates.",
         "",
-        "> **NOT VALID AS VALIDATION on a re-described batch.** These triggers were "
-        "designed to test a taxonomy against labels produced *independently* of it. Once "
-        "rows have been relabelled to match revised definitions, a trigger that no longer "
-        "fires shows only that the relabelling was applied — not that the taxonomy is "
-        "sound. Read these as a quality signal about labelling difficulty, never as "
-        "evidence of correctness.",
+        "**No trigger evaluation is reported here, deliberately.** The pre-declared "
+        "thresholds (`docs/DECISION_LOG.md` D29) only carry meaning when the labels were "
+        "produced *independently* of the taxonomy being tested. Taxonomy v2 was written "
+        "after reading this batch and the rows were then relabelled against it, so a "
+        "trigger that no longer fires would show only that the relabelling was applied — "
+        "not that the taxonomy is sound. Publishing such a table, even with a warning "
+        "attached, invites it to be quoted as validation.",
         "",
-        "| Trigger | Threshold | Observed | Fired |",
-        "| --- | --- | --- | --- |",
+        "The **valid** trigger evaluation is the v1 one, preserved unchanged in "
+        "`reports/phase5_pilot_analysis_v1_historical.md`. That is the evidence that "
+        "justified the v2 revision. The golden set is the first batch on which triggers "
+        "will be meaningful again.",
+        "",
     ]
-    for item in triggers:
-        observed = item["observed"]
-        rendered = observed if isinstance(observed, (int, float, str)) else json.dumps(observed)
-        if len(str(rendered)) > 90:
-            rendered = str(rendered)[:87] + "..."
-        lines.append(
-            f"| {item['trigger']} | {item['threshold']} | {rendered} | "
-            f"**{'YES' if item['fired'] else 'no'}** |"
-        )
 
     lines += [
         "",
@@ -518,7 +522,7 @@ def main() -> int:
     random_table = intent_table(random_frame)
     targeted_table = intent_table(targeted_frame)
     pairs = pair_counts(analysed)
-    triggers = evaluate_triggers(random_frame, random_table, pairs)
+    triggers = evaluate_triggers(random_frame, random_table, pairs) if EMIT_TRIGGER_EVALUATION else []
     review = build_review_cases(analysed)
 
     manifest = json.loads(
@@ -559,6 +563,11 @@ def main() -> int:
         "targeted_intent_table": targeted_table.to_dict(orient="records"),
         "secondary_pairs": pairs.to_dict(orient="records"),
         "triggers": triggers,
+        "triggers_omitted_reason": (
+            None if EMIT_TRIGGER_EVALUATION else
+            "circular on a re-described batch; valid v1 evaluation preserved in "
+            "reports/phase5_pilot_stats_v1_historical.json"
+        ),
         "manifest": manifest,
         "manifest_matches": bool(
             manifest["random_drawn"] == int((normalised["sampling_stratum"] == "random").sum())

@@ -66,7 +66,8 @@ def load_openings() -> pd.DataFrame:
     parts = []
     for batch in pq.ParquetFile(config.PROCESSED_DIR / "conversation_turns.parquet").iter_batches(
         batch_size=250_000,
-        columns=["conversation_id", "tweet_id", "brand", "speaker", "text", "turn_index", "created_at"],
+        columns=["conversation_id", "tweet_id", "brand", "speaker", "author_id", "text",
+                 "turn_index", "created_at"],
     ):
         block = batch.to_pandas()
         block = block[
@@ -76,7 +77,7 @@ def load_openings() -> pd.DataFrame:
             & (block["conversation_id"].isin(clean_ids))
         ]
         if not block.empty:
-            parts.append(block[["conversation_id", "tweet_id", "text", "created_at"]])
+            parts.append(block[["conversation_id", "tweet_id", "author_id", "text", "created_at"]])
 
     openings = pd.concat(parts, ignore_index=True)
     return openings.sort_values("conversation_id").reset_index(drop=True)
@@ -110,6 +111,11 @@ def sample_random_stratified(openings: pd.DataFrame, quota: int, seed: int) -> p
 
 
 def sample_targeted(openings: pd.DataFrame, quota: int, seed: int) -> pd.DataFrame:
+    # head(0) rather than an empty DataFrame: a dtype-less frame would degrade
+    # created_at to object when concatenated with the random pool.
+    if quota <= 0:
+        return openings.head(0).assign(probe=pd.Series(dtype="object"))
+
     per_probe = max(quota // len(RARE_INTENT_PROBES), 1)
     picked, used = [], set()
     for intent, pattern in sorted(RARE_INTENT_PROBES.items()):
@@ -174,13 +180,18 @@ def verify_blank_batch(path: Path, expected: pd.DataFrame) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build a blank annotation batch for manual labelling.")
     parser.add_argument("--batch", default="b01", help="Batch prefix, e.g. b01")
+    parser.add_argument("--name", default="pilot", help="Batch name used in the filename")
     parser.add_argument("--random-quota", type=int, default=RANDOM_QUOTA)
     parser.add_argument("--targeted-quota", type=int, default=TARGETED_QUOTA)
     parser.add_argument("--seed", type=int, default=config.RANDOM_SEED)
+    parser.add_argument("--exclude-same-customer", dest="exclude_same_customer",
+                        action="store_true", default=True)
+    parser.add_argument("--allow-same-customer", dest="exclude_same_customer",
+                        action="store_false")
     args = parser.parse_args()
 
     GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = GOLDEN_DIR / f"{args.batch}_pilot_blank.csv"
+    output_path = GOLDEN_DIR / f"{args.batch}_{args.name}_blank.csv"
     if output_path.name.endswith("_labelled.csv"):
         raise ValueError("Refusing to write to a *_labelled.csv path")
     if output_path.exists():
@@ -191,10 +202,28 @@ def main() -> int:
 
     print("[1/4] Loading AmericanAir opening messages ...", flush=True)
     openings = load_openings()
+    population = len(openings)
+
     excluded = already_labelled_conversations()
-    if excluded:
-        openings = openings[~openings["conversation_id"].isin(excluded)]
-    print(f"      {len(openings):,} available ({len(excluded):,} already labelled, excluded)", flush=True)
+    openings = openings[~openings["conversation_id"].isin(excluded)]
+    after_batch_exclusion = len(openings)
+
+    # A customer who already appears in a labelled batch is dropped entirely: two
+    # conversations from one person are not independent evaluation examples.
+    same_customer_excluded = 0
+    if args.exclude_same_customer and excluded:
+        labelled_customers = set(
+            load_openings().set_index("conversation_id")["author_id"].reindex(excluded).dropna()
+        )
+        keep = ~openings["author_id"].isin(labelled_customers)
+        same_customer_excluded = int((~keep).sum())
+        openings = openings[keep]
+
+    print(
+        f"      {len(openings):,} eligible "
+        f"({len(excluded):,} already labelled, {same_customer_excluded:,} same-customer)",
+        flush=True,
+    )
 
     print("[2/4] Sampling ...", flush=True)
     random_pool = sample_random_stratified(openings, args.random_quota, args.seed)
@@ -220,14 +249,22 @@ def main() -> int:
         "batch": args.batch,
         "brand": BRAND,
         "seed": args.seed,
-        "population": len(openings),
+        "population_total": population,
+        "excluded_already_labelled": len(excluded),
+        "population_after_batch_exclusion": after_batch_exclusion,
+        "exclude_same_customer": args.exclude_same_customer,
+        "excluded_same_customer": same_customer_excluded,
+        "eligible_population": len(openings),
         "random_quota": args.random_quota,
         "targeted_quota": args.targeted_quota,
         "random_drawn": len(random_pool),
         "targeted_drawn": len(targeted_pool),
         "random_month_distribution": month_counts,
-        "targeted_probes": {k: v for k, v in sorted(RARE_INTENT_PROBES.items())},
-        "excluded_already_labelled": len(excluded),
+        "targeted_probes": (
+            {k: v for k, v in sorted(RARE_INTENT_PROBES.items())}
+            if args.targeted_quota > 0 else {}
+        ),
+        "selected_conversation_ids": sorted(rows["conversation_id"].tolist()),
         "verification": checks,
         "output": str(output_path.relative_to(config.PROJECT_ROOT)),
     }
