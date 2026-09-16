@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import difflib
 import json
 import re
 
 from src import config, llm
 
-PROMPT_VERSION = "p1"
+PROMPT_VERSION = "p2"
+
+# G7: a reply this similar to a single historical reply is being copied, not written.
+COPY_SIMILARITY_THRESHOLD = 0.90
+MIN_COPY_COMPARISON_CHARS = 20
 
 MENTION_PATTERN = re.compile(r"@\w+")
 ANON_MENTION_PATTERN = re.compile(r"@\d+")
@@ -43,7 +48,9 @@ HISTORICAL EXAMPLES of how this team handled similar messages:
 {evidence}
 
 Rules:
-1. Reply to this customer's message, not to the historical examples.
+1. Write a new response for the current customer. Do not copy any historical reply
+   verbatim or reuse wording that refers to another customer's situation. Use the
+   historical replies only as guidance for approach, tone, and support actions.
 2. Treat the historical examples as guidance on approach and tone. They are other
    customers' cases, never facts about this customer.
 3. Do not invent policies, fees, URLs, phone numbers, amounts, timelines or compensation.
@@ -85,6 +92,35 @@ def build_prompt(customer_message: str, intent: str, evidence: list[dict]) -> st
     )
 
 
+DIGIT_STRING_PATTERN = re.compile(r"^[0-9]+$")
+
+
+def _parse_evidence_used(raw) -> tuple[list[int], bool]:
+    """Ranks must be positive integers. Small models emit them as strings, so a
+    digit-only string is coerced and the coercion is reported, never hidden."""
+    if not isinstance(raw, list):
+        raise ValueError("'evidence_used' must be a list of integers")
+
+    ranks: list[int] = []
+    coerced = False
+    for rank in raw:
+        # bool is a subclass of int, so it has to be rejected before the int check.
+        if isinstance(rank, bool):
+            raise ValueError("'evidence_used' must be a list of integers")
+        if isinstance(rank, int):
+            value = rank
+        elif isinstance(rank, str) and DIGIT_STRING_PATTERN.fullmatch(rank):
+            # str.isdigit() is true for superscripts that int() then rejects.
+            value = int(rank)
+            coerced = True
+        else:
+            raise ValueError("'evidence_used' must be a list of integers")
+        if value < 1:
+            raise ValueError("'evidence_used' ranks must be positive")
+        ranks.append(value)
+    return ranks, coerced
+
+
 def parse_response(text: str) -> dict:
     try:
         payload = json.loads(text)
@@ -101,15 +137,55 @@ def parse_response(text: str) -> dict:
     if not isinstance(payload["needs_more_information"], bool):
         raise ValueError("'needs_more_information' must be a boolean")
 
-    used = payload.get("evidence_used", [])
-    if not isinstance(used, list) or not all(isinstance(rank, int) for rank in used):
-        raise ValueError("'evidence_used' must be a list of integers")
+    used, coerced = _parse_evidence_used(payload.get("evidence_used", []))
 
     return {
         "reply": payload["reply"].strip(),
         "needs_more_information": payload["needs_more_information"],
         "evidence_used": used,
+        "evidence_used_coerced": coerced,
     }
+
+
+def _copy_normalise(text: str) -> str:
+    """Lowercase, drop mentions and URLs, collapse whitespace - so G7 measures wording."""
+    stripped = MENTION_PATTERN.sub(" ", URL_PATTERN.sub(" ", str(text).lower()))
+    return re.sub(r"\s+", " ", stripped).strip()
+
+
+def copy_similarity(reply: str, brand_reply: str) -> float:
+    """Ratio in [0,1] from difflib.SequenceMatcher over normalised text.
+
+    autojunk is disabled: its 'popular element' heuristic silently changes the ratio
+    on strings over 200 characters, which would make the score length-dependent.
+    """
+    left, right = _copy_normalise(reply), _copy_normalise(brand_reply)
+    if len(left) < MIN_COPY_COMPARISON_CHARS or len(right) < MIN_COPY_COMPARISON_CHARS:
+        return 0.0
+    return difflib.SequenceMatcher(None, left, right, autojunk=False).ratio()
+
+
+def check_copying(reply: str, evidence: list[dict],
+                  threshold: float = COPY_SIMILARITY_THRESHOLD) -> list[dict]:
+    """G7. Compared against each historical reply separately, never a merged blob."""
+    flags = []
+    for item in evidence:
+        historical = item["historical_brand_reply"]
+        ratio = copy_similarity(reply, historical)
+        if ratio < threshold:
+            continue
+        left, right = _copy_normalise(reply), _copy_normalise(historical)
+        block = difflib.SequenceMatcher(None, left, right, autojunk=False)\
+            .find_longest_match(0, len(left), 0, len(right))
+        flags.append({
+            "code": "G7_excessive_copying",
+            "detail": f"rank {item['rank']} similarity {round(ratio, 4)}",
+            "evidence_rank": item["rank"],
+            "similarity": round(ratio, 4),
+            "matched_span": left[block.a:block.a + block.size][:200],
+            "matched_span_chars": block.size,
+        })
+    return flags
 
 
 def _allowed_text(customer_message: str, evidence: list[dict]) -> str:
@@ -157,6 +233,7 @@ def check_grounding(reply: str, customer_message: str, evidence: list[dict]) -> 
     for mention in set(ANON_MENTION_PATTERN.findall(reply)):
         flags.append({"code": "G6_leaked_identifier", "detail": mention})
 
+    flags.extend(check_copying(reply, evidence))
     return flags
 
 
@@ -206,6 +283,7 @@ def generate_llm(customer_message: str, intent: str, evidence: list[dict], *,
             "llm_grounded", "", customer_message, evidence, needs_more=False, used=[],
             extra={
                 "prompt_version": PROMPT_VERSION,
+                "evidence_used_coerced": False,
                 "model": response.get("model"),
                 "parse_error": str(error),
                 "raw_text": response["text"][:500],
@@ -219,6 +297,7 @@ def generate_llm(customer_message: str, intent: str, evidence: list[dict], *,
         needs_more=parsed["needs_more_information"], used=parsed["evidence_used"],
         extra={
             "prompt_version": PROMPT_VERSION,
+            "evidence_used_coerced": parsed["evidence_used_coerced"],
             "model": response.get("model"),
             "parse_error": None,
             "latency_seconds": response.get("latency_seconds"),

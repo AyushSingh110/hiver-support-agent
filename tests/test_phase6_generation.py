@@ -7,7 +7,9 @@ import pandas as pd
 from src import config
 from src.generate_reply import (
     build_prompt,
+    check_copying,
     check_grounding,
+    copy_similarity,
     generate_baseline_echo,
     generate_baseline_template,
     generate_llm,
@@ -203,6 +205,185 @@ class TestGoldenIsolation(unittest.TestCase):
                              encoding="utf-8-sig")
         prompt = build_prompt("my bag is lost", "baggage", fake_evidence())
         self.assertFalse(any(text and text in prompt for text in golden["text"]))
+
+
+class TestG7Copying(unittest.TestCase):
+    def setUp(self):
+        self.evidence = fake_evidence(3)
+        self.evidence[0]["historical_brand_reply"] = (
+            "Sorry about that. Please share your record locator via DM and we will take a look."
+        )
+        self.evidence[1]["historical_brand_reply"] = (
+            "We are sorry your flight was delayed today. Our team is working to get you moving."
+        )
+        self.evidence[2]["historical_brand_reply"] = (
+            "Congratulations on the upgrade, we hope you enjoy the extra space on board."
+        )
+
+    def codes(self, reply):
+        return {f["code"] for f in check_grounding(reply, "my bag is missing", self.evidence)}
+
+    def test_identical_historical_reply_is_flagged(self):
+        reply = self.evidence[0]["historical_brand_reply"]
+        flags = check_copying(reply, self.evidence)
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0]["code"], "G7_excessive_copying")
+        self.assertAlmostEqual(flags[0]["similarity"], 1.0, places=3)
+
+    def test_near_verbatim_copy_is_flagged(self):
+        reply = "Sorry about that. Please share your record locator via DM and we will take a look!"
+        flags = check_copying(reply, self.evidence)
+        self.assertTrue(flags)
+        self.assertGreaterEqual(flags[0]["similarity"], 0.90)
+
+    def test_original_reply_is_not_flagged(self):
+        reply = ("Thanks for flagging this. Could you tell us which airport you flew from "
+                 "and when you last saw the bag?")
+        self.assertEqual(check_copying(reply, self.evidence), [])
+
+    def test_unrelated_evidence_does_not_flag(self):
+        reply = "Congratulations on the upgrade, we hope you enjoy the extra space on board."
+        flags = check_copying(reply, self.evidence[:2])
+        self.assertEqual(flags, [])
+
+    def test_correct_rank_is_reported_with_multiple_evidence_items(self):
+        reply = self.evidence[2]["historical_brand_reply"]
+        flags = check_copying(reply, self.evidence)
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0]["evidence_rank"], 3)
+
+    def test_flag_carries_inspectable_matched_span(self):
+        reply = self.evidence[0]["historical_brand_reply"]
+        flag = check_copying(reply, self.evidence)[0]
+        self.assertIn("record locator", flag["matched_span"])
+        self.assertGreater(flag["matched_span_chars"], 20)
+
+    def test_is_deterministic(self):
+        reply = self.evidence[1]["historical_brand_reply"]
+        self.assertEqual(check_copying(reply, self.evidence), check_copying(reply, self.evidence))
+
+    def test_similarity_ignores_mentions_urls_and_case(self):
+        base = "Please share your record locator via DM and we will take a look at this."
+        decorated = f"@123456 PLEASE SHARE your record locator via DM and we will take a look at this. https://t.co/x"
+        self.assertGreaterEqual(copy_similarity(base, decorated), 0.95)
+
+    def test_very_short_texts_are_not_compared(self):
+        self.assertEqual(copy_similarity("ok", "ok"), 0.0)
+
+    def test_g7_participates_in_grounding_result(self):
+        self.assertIn("G7_excessive_copying",
+                      self.codes(self.evidence[0]["historical_brand_reply"]))
+
+    def test_echo_baseline_is_flagged_by_g7_by_design(self):
+        from src.generate_reply import generate_baseline_echo
+        result = generate_baseline_echo("my bag is lost", self.evidence)
+        self.assertFalse(result["grounding_passed"])
+        self.assertIn("G7_excessive_copying", {f["code"] for f in result["grounding_flags"]})
+
+    def test_template_baseline_is_not_flagged_by_g7(self):
+        from src.generate_reply import generate_baseline_template
+        result = generate_baseline_template("my bag is lost", self.evidence)
+        self.assertNotIn("G7_excessive_copying",
+                         {f["code"] for f in result["grounding_flags"]})
+
+
+class TestPromptVersion(unittest.TestCase):
+    def test_prompt_forbids_verbatim_reuse(self):
+        prompt = build_prompt("help me", "baggage", fake_evidence())
+        self.assertIn("Do not copy any historical reply", prompt)
+
+    def test_prompt_version_recorded(self):
+        from src.generate_reply import PROMPT_VERSION
+        self.assertEqual(PROMPT_VERSION, "p2")
+
+
+class TestEvidenceUsedCoercion(unittest.TestCase):
+    def parse(self, evidence_used: str):
+        return parse_response(
+            '{"reply":"hi there","needs_more_information":false,"evidence_used":%s}' % evidence_used)
+
+    def test_integer_ranks_remain_valid_and_uncoerced(self):
+        parsed = self.parse("[1,2]")
+        self.assertEqual(parsed["evidence_used"], [1, 2])
+        self.assertFalse(parsed["evidence_used_coerced"])
+
+    def test_digit_strings_are_coerced(self):
+        parsed = self.parse('["1","2"]')
+        self.assertEqual(parsed["evidence_used"], [1, 2])
+        self.assertTrue(parsed["evidence_used_coerced"])
+        self.assertTrue(all(type(r) is int for r in parsed["evidence_used"]))
+
+    def test_mixed_integers_and_digit_strings(self):
+        parsed = self.parse('[1,"2",3]')
+        self.assertEqual(parsed["evidence_used"], [1, 2, 3])
+        self.assertTrue(parsed["evidence_used_coerced"])
+
+    def test_empty_list_is_valid_and_uncoerced(self):
+        parsed = self.parse("[]")
+        self.assertEqual(parsed["evidence_used"], [])
+        self.assertFalse(parsed["evidence_used_coerced"])
+
+    def test_rejects_non_numeric_string(self):
+        for value in ('["one"]', '["1a"]', '[" 1"]', '[""]'):
+            with self.assertRaises(ValueError, msg=value):
+                self.parse(value)
+
+    def test_rejects_negative_values(self):
+        for value in ('["-1"]', "[-1]", "[0]", '["0"]'):
+            with self.assertRaises(ValueError, msg=value):
+                self.parse(value)
+
+    def test_rejects_decimal_values(self):
+        for value in ('["1.0"]', "[1.5]", "[2.0]"):
+            with self.assertRaises(ValueError, msg=value):
+                self.parse(value)
+
+    def test_rejects_booleans(self):
+        # bool subclasses int, so this would silently pass a naive isinstance check.
+        for value in ("[true]", "[false]", '[1,true]'):
+            with self.assertRaises(ValueError, msg=value):
+                self.parse(value)
+
+    def test_rejects_null_and_nested_types(self):
+        for value in ("[null]", '[[1]]', '[{"rank":1}]', '"1"', "1"):
+            with self.assertRaises(ValueError, msg=value):
+                self.parse(value)
+
+    def test_parser_is_not_generally_permissive(self):
+        with self.assertRaises(ValueError):
+            parse_response('{"reply":"hi","needs_more_information":"false"}')
+        with self.assertRaises(ValueError):
+            parse_response('{"reply":123,"needs_more_information":false}')
+
+    def test_generation_records_coercion_provenance(self):
+        coerced = generate_llm(
+            "my bag is lost", "baggage", fake_evidence(),
+            complete_fn=fake_complete(
+                '{"reply":"we can help with that bag","needs_more_information":false,'
+                '"evidence_used":["1"]}'),
+            use_cache=False)
+        self.assertTrue(coerced["evidence_used_coerced"])
+        self.assertEqual(coerced["evidence_used"], [1])
+        self.assertTrue(coerced["grounding_passed"])
+
+        native = generate_llm(
+            "my bag is lost", "baggage", fake_evidence(),
+            complete_fn=fake_complete(
+                '{"reply":"we can help with that bag","needs_more_information":false,'
+                '"evidence_used":[1]}'),
+            use_cache=False)
+        self.assertFalse(native["evidence_used_coerced"])
+
+    def test_invalid_output_still_reports_parse_error_and_no_coercion(self):
+        result = generate_llm(
+            "my bag is lost", "baggage", fake_evidence(),
+            complete_fn=fake_complete(
+                '{"reply":"hi","needs_more_information":false,"evidence_used":["one"]}'),
+            use_cache=False)
+        self.assertIsNotNone(result["parse_error"])
+        self.assertFalse(result["evidence_used_coerced"])
+        self.assertFalse(result["grounding_passed"])
+        self.assertEqual(result["grounding_flags"][0]["code"], "G1_empty_reply")
 
 
 if __name__ == "__main__":
