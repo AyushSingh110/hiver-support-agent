@@ -1,32 +1,43 @@
 # Hiver Support Agent
 
-An AI customer-support agent built on the *Customer Support on Twitter* dataset. For
-one selected brand it classifies an incoming customer message into an intent, drafts
-a reply grounded in how that brand historically resolved similar issues, and decides
-whether to auto-handle or escalate — with a stated reason.
+An AI customer-support agent for **@AmericanAir**, built on the *Customer Support on
+Twitter* dataset. For each incoming customer message it:
 
-The project is built **evaluation-first**: the proof matters more than the system.
+1. classifies the message into one of 13 intents;
+2. retrieves how the brand handled similar messages and drafts a reply grounded in them;
+3. decides **auto-handle or escalate, with auditable reason codes**.
 
-> **Status: Phase 1 complete (raw dataset profiling).**
-> The brand has **not** been selected and conversations have **not** been
-> reconstructed. Sections below are filled in as phases complete.
+The project is **evaluation-first**. **Start with [`REPORT.md`](REPORT.md)**: results,
+failure modes, what the headline numbers do not show, and key decisions.
+
+| Document | Purpose |
+| --- | --- |
+| [`REPORT.md`](REPORT.md) | Final report (5 A4 pages) |
+| [`docs/DECISION_LOG.md`](docs/DECISION_LOG.md) | 49 non-obvious decisions, with alternatives and tradeoffs |
+| [`docs/FILE_GUIDE.md`](docs/FILE_GUIDE.md) | What each file does, and which contain core logic |
+| [`docs/DEVELOPMENT_LOG.md`](docs/DEVELOPMENT_LOG.md) | Every step, error and fix, in order |
 
 ---
 
-## 1. Project overview
+## Headline results
 
-*(Filled in once the system exists.)*
+All results are on 248 held-out golden messages labelled by one annotator. **b02 (100 rows)
+is the cleaner, independently sampled subset.** Full tables and caveats are in `REPORT.md`.
 
-## 2. Problem framing
+| Component | Result (all 248 / b02) | Baseline | What it is **not** |
+| --- | --- | --- | --- |
+| Intent: TF-IDF + LR on weak labels | accuracy **0.472** / 0.450; macro-F1 0.358 / 0.322 | majority class 0.117 / 0.100 | not an upper bound: 41 gold rows use labels the classifier cannot predict |
+| Retrieval, k=5 | gold-intent vs weak-label agreement **39.83%** / 40.80% | random evidence 12.13% / 12.04% | not retrieval accuracy (evidence has only weak labels) |
+| Generation, `llama3.1:8b` | parsed 95.97%; **all G1–G7 checks passed 95.16%** | fixed reply 100%; top-1 echo 0.4% | not correctness |
+| Escalation | **32.3%** escalated / 34.0%, each with reason codes | — | not an error rate (no outcome labels) |
+| Intent-label reliability | intra-annotator retest: raw 84.4%, κ **0.8281** [0.7039, 0.9254] | — | not inter-annotator agreement |
+| Reply quality | one round, 119 ratings by the developer, AI-assisted; retest **not completed** | two baselines rated alongside | not independent or validated human evaluation |
+| LLM-as-judge | **failed** pre-declared validation (4 configurations) and is not used | — | — |
 
-*(Filled in at Phase 9.)*
+## Why AmericanAir
 
-## 3. Selected brand
-
-**@AmericanAir** — 24,429 clean conversations, 24,178 usable for retrieval.
-
-Chosen by four screening gates (volume, public resolution, language, support purity)
-applied to the 25 largest brands, then a weighted score over the 11 survivors.
+The 25 largest brands went through four gates (volume, public resolution, language,
+support purity) before a weighted score (D22, D23).
 
 | | AmericanAir | Delta | AmazonHelp |
 | --- | --- | --- | --- |
@@ -35,256 +46,230 @@ applied to the 25 largest brands, then a weighted score over the 11 survivors.
 | URL rate | **8.3%** | 23.5% | 65.6% |
 | English (heuristic) | 99.2% | 99.8% | **81.9%** |
 
-**Why not AmazonHelp, despite being three times larger?** It leads on nearly every
-headline metric — but **18.1% of its opening messages are not English** (it is a
-global handle), against under 2% for every other candidate. That would confound
-intent classification, retrieval and LLM-judging at once. Its 65.6% URL rate also
-means many replies are links rather than answers.
+- **AmericanAir answers in prose, in public**, which is good material to ground replies in.
+- **AmazonHelp** is 18.1% non-English, and most of its replies are links.
+- **AppleSupport** pushes 64.4% of conversations to DMs, where resolutions are invisible.
+- **The weighted score ranked AmericanAir sixth,** and the weights were not changed to hide
+  that (D23).
+- **Almost all the data (99.8%) falls in Oct–Dec 2017.**
 
-**Why not Delta?** Very close, and defensible. AmericanAir wins on DM deflection
-(21.1% vs 25.5%) and decisively on URL rate (8.3% vs 23.5%) — it answers in prose,
-which is better material to ground a generated reply in.
+## Architecture
 
-**Honest note:** the weighted score does *not* rank AmericanAir first — it ranks
-GWRHelp first and AmericanAir sixth. The weights were not adjusted to change that.
-GWRHelp's near-zero DM deflection dominates the heaviest criterion, but it is a
-regional train operator with 9,577 conversations and roughly four distinguishable
-intents. The full reasoning is in `docs/DECISION_LOG.md` (D22, D23).
-
-**Dataset size alone is the wrong criterion**: AppleSupport is the second-largest
-brand in the corpus and is unusable, because 64.4% of its conversations get pushed
-to DM where the resolution is invisible.
-
-## 4. Dataset
-
-[Customer Support on Twitter](https://www.kaggle.com/datasets/thoughtvector/customer-support-on-twitter)
-(Kaggle). One row is **one tweet**, not one conversation.
-
-| Property | Value |
-| --- | --- |
-| Rows | 2,811,774 |
-| File size | 516,508,641 bytes (~493 MB) |
-| Columns | `tweet_id`, `author_id`, `inbound`, `created_at`, `text`, `response_tweet_id`, `in_response_to_tweet_id` |
-| Time range | 2008-05-08 to 2017-12-03 |
-| Unique authors | 702,777 |
-| Support accounts | 108 |
-
-**Checksums** (SHA-256), so you can confirm you have the identical file:
-
-```
-sample.csv       22A2ABA84EF3B19CEB0AA452161474E9DB541B9C706F205645412A735E1F7F38
-twcs/twcs.csv    CD297FCFA1BF6F99938BE242E8E578980BC6D1B96ADC8691ABEC9A39175B03C0
+```text
+raw tweets (2.81M) ─► conversation reconstruction (798,197 components; 741,110 clean dyads)
+                   ─► AmericanAir corpus (24,178) ─► leakage exclusion ─► 23,722 conversations
+                                                                           │
+customer message ─► intent classifier (TF-IDF + LR, trained on 9,423 weakly labelled messages)
+                 ─► retrieval (TF-IDF over customer openings, k = 5, own conversation and customer excluded)
+                 ─► generation (Ollama llama3.1:8b, temperature 0, seed 42, strict JSON)
+                 ─► G1–G7 deterministic checks
+                 ─► escalation esc-v1 ─► auto_handle | escalate + reason codes
 ```
 
-The dataset is **not committed** — it exceeds GitHub's 100 MB file limit. Download it
-from Kaggle and extract it to `data/raw/` so the layout is:
-
-```
-data/raw/sample.csv
-data/raw/twcs/twcs.csv
-```
-
-`data/raw/` is treated as immutable and is set read-only.
-
-## 5. Dataset processing
-
-Phase 1 writes a faithful Parquet cache at `data/interim/twcs.parquet` (~254 MB).
-It is a **copy, not a transformation** — same rows, same values, no cleaning — so it
-can be deleted and regenerated without changing any result.
-
-## 6. Conversation reconstruction
-
-**Done.** Reply links become conversations by following `in_response_to_tweet_id`
-only; components are found by pointer doubling; turns are ordered by `created_at`.
-
-| Status | Conversations | Tweets |
+| Stage | Module | Key facts |
 | --- | --- | --- |
-| `clean` (1 customer + 1 brand) | **741,110** (92.85%) | 2,360,317 (83.94%) |
-| `multi_customer` | 54,642 | 437,899 |
-| `multi_brand` | 2,358 | 13,351 |
-| `no_customer` | 87 | 207 |
+| Profiling | `src/profile_raw.py` | reads every column as text; cycle detection on a functional graph |
+| Reconstruction | `src/reconstruct.py` | edges only from `in_response_to_tweet_id`; pointer doubling; broadcasts removed by participant structure |
+| Brand selection | `src/analyze_brands.py` | gates, then score |
+| Intent discovery | `src/discover_intents.py` | TF-IDF clustering, **reported as inadequate** (silhouette ≤ 0.054) |
+| Corpus and weak labels | `src/build_corpus.py`, `src/taxonomy.py`, `src/leakage.py` | shared golden exclusion: conversation, customer, exact text, near-duplicate |
+| Intent classifier | `src/classify_intent.py` | TF-IDF (1–2-grams) + balanced logistic regression, seed 42 |
+| Retrieval | `src/retrieve.py` | deterministic tie-breaking; a random baseline over the same pool |
+| Generation and checks | `src/generate_reply.py`, `src/llm.py` | `urllib` only; disk cache keyed by prompt, model, temperature, seed and format |
+| Escalation | `src/escalate.py`, `src/calibrate_escalation.py` | 7 ordered rules; every reason recorded; thresholds are golden-free 20th percentiles |
+| Evaluation | `src/evaluate.py` | the only code that reads gold labels, and only with `--confirm-golden-run` |
+| Reply-quality ratings | `src/build_reply_rating_batch.py`, `src/analyse_reply_ratings.py` | blinded batch; analysis written and tested on synthetic data only |
 
-Clean conversations: median 2 turns, mean 3.18. All 798,197 components are kept and
-classified — downstream phases choose which statuses to use.
+**The seven escalation rules**, in order:
 
-**Broadcasts are excluded by participant structure, not a fan-out threshold.** A
-support interaction is a dyad; the largest component is an outage notice with 973
-distinct authors. A fan-out rule would have been worse than useless here: replies
-under high fan-out tweets are *more* likely to develop into real exchanges (78.8% vs
-a 48.0% baseline), so a threshold would have deleted genuine support.
+1. generation unusable;
+2. G2–G7 flag;
+3. invalid evidence citation;
+4. fewer than 2 evidence items;
+5. explicit human-review policy (`staff_and_service_complaint`, `general_dissatisfaction`;
+   a stated policy, D44);
+6. intent confidence < 0.1913;
+7. top-1 similarity < 0.1981 together with a substantive reply.
 
-Reconstruction runs in ~1 minute and is byte-for-byte deterministic.
+A reply that only asks for details gets the informational code `awaiting_customer_details`
+and is **not** escalated for weak evidence (D45).
 
-## 7. Intent taxonomy
+## Intents (taxonomy v2, frozen)
 
-**Discovery done; taxonomy proposed but UNVALIDATED.** 24,190 opening messages
-clustered (49 of the 24,239 normalise to empty — mention-plus-URL only).
+| Intents | Escape labels |
+| --- | --- |
+| `flight_delay`, `flight_cancellation_rebooking`, `baggage`, `seating_and_upgrade`, `boarding_and_gate`, `booking_fees_and_fare_rules`, `staff_and_service_complaint`, `loyalty_and_lounge`, `praise_and_compliment`, `general_dissatisfaction`, `non_support_commentary` | `OTHER`, `UNCLEAR` |
 
-**The clustering is weak, and that is reported rather than tuned away.** TF-IDF +
-SVD + KMeans gave 16.56% explained variance, silhouette of 0.037–0.054 across every
-K from 6 to 20, one cluster holding 38.3% of the corpus, and an ARI of only 0.37
-between preprocessing variants. Only ~37% of messages land in plausibly coherent
-clusters. TF-IDF matches word overlap, and *"bag never showed up"* shares no tokens
-with *"luggage missing"*.
+- **Definitions, boundaries and tie-breakers:** `golden/taxonomy_v2.md`.
+- **Weak-label rules** exist for the first ten intents only. `non_support_commentary`,
+  `OTHER` and `UNCLEAR` are therefore never predicted (D41).
 
-What *is* reliable is the recurring issue vocabulary — baggage, delays,
-cancellations, boarding, seats and upgrades, fare rules, staff conduct. The candidate
-taxonomy is authored from that evidence and lives in
-`reports/phase4_candidate_taxonomy.md`, hand-written and explicitly marked
-unvalidated.
+## Evaluation methodology
 
-Next decision: accept a vocabulary-derived taxonomy, or invest in embeddings for a
-better partition. Evidence in `docs/DECISION_LOG.md` D25.
+- **Golden set** (`golden/golden_set_v1.csv`, frozen):
+  - 148 pilot rows (b01: 120 random + 28 targeted), relabelled under taxonomy v2;
+  - 100 fresh rows (b02) labelled under the frozen v2;
+  - one annotator.
+- **Isolation:**
+  - golden conversations, **all conversations by golden customers**, exact duplicates and
+    near-duplicates are excluded from retrieval and training;
+  - `src/evaluate.py` re-checks this and stops on any violation;
+  - gold labels never train, tune or select anything. The one exception, the choice of k in
+    Phase 6B, is disclosed in `REPORT.md` §7.
+- **Run of record:** the recorded Phase 6C generations. The evaluation reproduces the
+  classifier predictions, retrieved evidence, G1–G7 flags and both baselines **exactly**
+  before scoring.
+- **Statistics:** 95% percentile bootstrap intervals (2,000 resamples, seed 42) for accuracy
+  and macro-F1. Every table reports all 248 rows and b02.
+- **Baselines:**
+  - majority-class intent;
+  - random evidence from the same pool with the same exclusions (seed `42 + query index`);
+  - **Baseline B**, a fixed generic reply;
+  - **Baseline A**, the sanitised top-1 historical reply (its G7 failures follow from its
+    definition).
+- **Reply quality** (Phase 6F):
+  - 40 golden items × 3 systems, blinded and shuffled, rated on a 1–5 rubric
+    (`human_eval/`);
+  - **the rater is the system's developer, and the ratings were AI-assisted;**
+  - blinding was weak, and the retest was built but **not completed** before submission
+    (D47, D48).
+- **LLM-as-judge:** `src/judge.py` is **experimental and unused**. It failed its
+  pre-declared validation (D46).
 
-**Pilot labelled and analysed; taxonomy decision pending.** 148 messages hand-labelled
-by one annotator; 147 analysed after one row was excluded for a text/source mismatch
-caught by validation. Prevalence is reported from the 119-row random stratum only.
-
-Two of five pre-declared triggers fired: `OTHER` at 11.8% (threshold 10%), and
-non-high confidence above 30% in six intents — worst is
-`flight_cancellation_rebooking` at 67%, exactly the intent Phase 4 flagged as
-suspect. Reading the `OTHER` rows showed they are **not** one missing category: six
-are non-support travel commentary, seven are a genuine long tail of distinct
-operational issues. Recommendation is minimal revision, not redesign.
-
-**No agreement score is reported.** One annotator, one pass, so neither inter- nor
-intra-annotator agreement is computable, and none was invented.
-
-**Taxonomy v2 proposed** (`golden/taxonomy_v2.md`): all 12 v1 labels retained,
-`non_support_commentary` added, `loyalty_and_lounge` broadened to cover account
-administration, 7 definitions sharpened. Nothing merged or removed.
-
-The one change that matters: `OTHER` was fusing *long-tail support issues that likely
-need a human* with *social posts that must never be escalated* — a class the
-escalation policy could not have acted on consistently. `inflight_experience` was
-**rejected**: one random-stratum example (0.8%) is not a category.
-
-**v2 is unvalidated.** Its definitions were written after reading the pilot, so
-measuring them on those same rows would be circular. The golden set is its first
-honest test. 22 of 148 pilot rows await human relabelling.
-
-`golden/` is the one directory tracked in Git rather than ignored — hand labels are
-the only artifact in this project that cannot be regenerated from code. Golden labels
-are used for **evaluation only**: never for training, retrieval, prompt examples or
-threshold tuning.
-
-```
-Raw tweets (2.81M)
-    -> Conversation reconstruction   [done]  798,197 components, 741,110 clean
-    -> Brand selection               [done]  AmericanAir, 24,429 conversations
-    -> Intent discovery              [next]
-    -> Historical resolution corpus
-    -> Response generation + escalation
-    -> Evaluation
-```
-
-**One constraint discovered in Phase 3:** despite 17 months of nominal coverage,
-99.8% of AmericanAir conversations fall in Oct–Dec 2017. Any temporal split will
-span weeks, not months.
-
-## 8. Architecture
-
-*(Phase 9. Not started.)*
-
-## 9–16. Baselines, retrieval, escalation, evaluation, judge
-
-*(Phases 8–14. Not started.)*
-
----
-
-## Key findings from Phase 1
-
-These drive the design of later phases.
-
-**`tweet_id` is not chronological — timestamps are authoritative.**
-Across 2,013,577 parent→child edges, the parent is **never** later in time than its
-child (0 violations; 56 same-second ties). Yet only 44.5% of edges have a parent with
-a lower `tweet_id`, and the Spearman correlation between `tweet_id` and time is just
-0.34. Conversation ordering must use `created_at`, never `tweet_id`.
-
-**`in_response_to_tweet_id` is far more reliable than `response_tweet_id`.**
-The two columns agree on 91.95% of edges, but the disagreement is lopsided:
-172,500 dangling child references versus only 3,862 dangling parent references.
-Reconstruction should follow the parent column.
-
-**Broadcast tweets are not conversations.**
-472 tweets have 50+ direct replies — contests, product announcements and outage
-notices (one AldiUK competition drew 1,755 replies). Treating these as conversations
-would fabricate enormous fake threads.
-
-**The data is effectively a three-month snapshot.**
-Despite spanning 2008–2017, ~99.5% of tweets fall in Oct–Dec 2017. The long tail
-back to 2008 is a negligible trickle. This constrains what a temporal split can mean
-(Phase 6).
-
-**Brands differ enormously in whether they resolve publicly.**
-DM-deflection rate ranges from 0.5% (hulu_support) to 81.8% (TMobileHelp). A brand
-that pushes conversations to private DMs leaves no visible resolution to ground a
-reply in — this is the single most important brand-selection criterion.
-
-**Tweet text contains embedded newlines.** 190,749 more physical lines than parsed
-rows. Any line-based reader would corrupt the data; the CSV parser handles it.
-
----
-
-## Reproducibility
+## Reproduction
 
 ### Environment
-
-One conda environment for the whole project:
 
 ```bash
 conda env create -f environment.yml
 conda activate hiver
 ```
 
-Dependencies are added in the phase that needs them, not upfront. Phase 1 needs only
-pandas, numpy and pyarrow.
+Python 3.11, pandas, numpy, pyarrow and scikit-learn. No other packages are needed. Ollama
+is only needed for Level 2.
 
-### Running Phase 1
+### Level 0: tests (no data, about 1 minute)
 
 ```bash
-# Fast correctness check on the 93-row sample (seconds)
-python -m src.profile_raw --source sample
-
-# Full profile (~2 minutes, 2.8M rows)
-python -m src.profile_raw --source full
+python -m unittest discover -s tests
 ```
 
-Outputs:
+391 tests. They use synthetic fixtures plus the tracked `golden/` files, and pass on a clean
+clone with no `data/` directory.
 
-| Path | Contents |
-| --- | --- |
-| `reports/phase1_profile.md` | Human-readable profile |
-| `reports/phase1_stats.json` | Every statistic, machine-readable |
-| `data/interim/twcs.parquet` | Regenerable cache |
+### Level 1: headline deterministic evaluation (no LLM, about 5 minutes)
 
-`reports/` and `data/` are **not tracked in Git** — they are generated output, fully
-reproducible from the code plus the dataset. The findings that matter are summarised
-above; run the profiler to regenerate the full detail.
+1. Download [Customer Support on Twitter](https://www.kaggle.com/datasets/thoughtvector/customer-support-on-twitter)
+   and place the CSV at `data/raw/twcs/twcs.csv`. Check its SHA-256:
+   `CD297FCFA1BF6F99938BE242E8E578980BC6D1B96ADC8691ABEC9A39175B03C0`.
+2. Run:
 
-The run is deterministic (fixed seed in `src/config.py`); re-running reproduces
-identical statistics.
+   ```bash
+   python -m src.reproduce_headline
+   ```
 
----
+The runner does the following, in order:
 
-## File structure
+1. profiles and caches the CSV;
+2. reconstructs conversations;
+3. builds the corpus and weak labels;
+4. **checks `artifacts/phase6/SHA256SUMS` and copies the recorded generations** into
+   `data/processed/phase6/`;
+5. calibrates the escalation thresholds;
+6. rebuilds the Phase 5 retest key and agreement report;
+7. runs `python -m src.evaluate --confirm-golden-run`;
+8. runs the round-1 reply-rating analysis;
+9. prints per-step timings.
 
+It exits with status 0 only if `evaluation_rows.jsonl` is byte-identical to the recorded
+run.
+
+**Measured on a clean copy of the repository** (no `data/`, no caches, Windows laptop): 295 s in total. That breaks down as profiling 123 s, reconstruction 51 s, corpus 10 s, calibration 39 s, evaluation 64 s, and the remaining steps under 10 s together. The evaluation statistics matched the original run except for the recorded git commit.
+
+Reports are written to `reports/`, which Git ignores; the main ones are
+`phase6_evaluation.md` and `phase6f_reply_ratings_round1.md`.
+
+### Level 2: regenerate replies (optional, about 1 hour, needs Ollama)
+
+```bash
+ollama pull llama3.1:8b
+python -m src.run_golden_generation      # writes data/processed/phase6/golden_generation_records.jsonl
+python -m src.retry_golden_generation    # retries rows that failed for infrastructure reasons, once
 ```
-data/raw/           immutable source data (git-ignored, read-only)
-data/interim/       regenerable cache (git-ignored)
-src/config.py       paths and constants
-src/profile_raw.py  Phase 1 profiling
-reports/            generated reports and statistics
-docs/               development log, file guide, decision log
+
+**These are the historical Phase 6C run scripts, kept unchanged.**
+
+- They run as soon as they are imported.
+- They contain a hard-coded `sys.path` entry, which is harmless when run with `python -m`
+  from the repository root.
+- The first pass and the retry were merged into `golden_generation_final.jsonl` by hand;
+  `src/evaluate.py` verifies that merge.
+- **Regenerated text may differ byte for byte from the record** (b01_0001, `REPORT.md` §8).
+  The evaluation uses the tracked record.
+
+### Other entry points
+
+```bash
+python -m src.profile_raw --source sample          # 93-row correctness check, seconds
+python -m src.analyze_brands --source full         # brand screening
+python -m src.discover_intents --source full      # Phase 4 clustering report
+python -m src.classify_intent                      # intent baselines
+python -m src.retrieve                             # retrieval report and k selection
+python -m src.build_reply_rating_batch --verify    # needs the local generation cache
 ```
 
-See `docs/FILE_GUIDE.md` for what each file does and which contain core logic.
+## Repository layout
 
-## Documentation
+```text
+REPORT.md                 final report
+src/                      pipeline, evaluation and rating tools (see docs/FILE_GUIDE.md)
+tests/                    391 unit tests (synthetic fixtures and tracked golden files)
+golden/                   frozen taxonomy, guidelines, golden labels, exclusion ids, Phase 5 retest labels
+human_eval/               Phase 6F rubric, blinded batches, round-1 ratings, manifests (no system mapping)
+artifacts/phase6/         recorded Phase 6C generations + SHA256SUMS (tracked; D49)
+docs/                     decision log, file guide, development log
+data/                     raw data, caches, corpus and LLM caches (ignored)
+reports/                  generated reports (ignored)
+```
 
-| Document | Purpose |
-| --- | --- |
-| `docs/DEVELOPMENT_LOG.md` | Every step, error, root cause and fix, in order |
-| `docs/FILE_GUIDE.md` | Per-file responsibilities and review priority |
-| `docs/DECISION_LOG.md` | Non-obvious decisions, alternatives and tradeoffs |
+**What each part is for:**
+
+| | Needed to run the agent | Needed to reproduce the evaluation |
+| --- | --- | --- |
+| `data/raw/twcs/twcs.csv` (download) | yes, to build the corpus | yes |
+| `src/`, `environment.yml` | yes | yes |
+| Ollama + `llama3.1:8b` | yes, for generation | no (Level 2 only) |
+| `golden/` | only for its exclusion ids | yes |
+| `artifacts/phase6/` | no | yes (the run of record) |
+| `human_eval/` | no | reply-quality analysis only |
+
+**Git:**
+
+- **Data files are stored byte-exact** (`.gitattributes`), so the recorded SHA-256 values
+  hold on any platform.
+- **`data/` and `reports/` are ignored.** The raw CSV (493 MB) is never committed.
+
+## Limitations
+
+- **One annotator.** Every gold label comes from one person. Label reliability evidence is
+  intra-annotator only (κ 0.8281, a 12–14-hour gap), and 148 golden rows were relabelled
+  under definitions written after reading them.
+- **Weak supervision.** The classifier learns keyword rules, covers 10 of 13 labels, and
+  cannot predict 41 golden rows.
+- **Lexical retrieval.**
+  - Similarity is low (median top-1 0.26).
+  - Weak labels cover 38% of evidence.
+  - k was chosen with golden results.
+- **Safety checks are regular expressions.** Soft promises and invented procedures pass
+  (two such auto-handled replies were found in the reply ratings). **A 95% pass rate is not
+  correctness.**
+- **Escalation.** The thresholds are traffic sizes, and no outcome labels exist.
+- **Reply quality.**
+  - One round of developer-made, AI-assisted ratings, with weak blinding.
+  - The retest was not completed.
+  - No agreement statistic exists.
+  - The LLM judge failed validation.
+- **Reproducibility of generation.** 49 of the 248 generations needed an infrastructure
+  retry, and one of five probed rows did not regenerate byte for byte.
+- **Scope.** One brand, English, Oct–Dec 2017, a local 8B model, and laptop latency (median
+  12.8 s per reply).

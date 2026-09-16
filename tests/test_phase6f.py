@@ -1069,5 +1069,80 @@ class TestAnalysisSafety(unittest.TestCase):
         self.assertIn("intra-annotator", report)
 
 
+def run_round1_only(**overrides) -> dict:
+    key, blank_rows, rated_rows = fixture_round1()
+    arguments = dict(round1_raw=render_rows(rated_rows), round1_blank_raw=render_rows(blank_rows), key=key,
+                     automated=AUTOMATED, retest_raw=None, retest_blank_raw=None, retest_key=None,
+                     input_kind="synthetic", round1_only=True)
+    arguments.update(overrides)
+    return ar.analyse(**arguments)
+
+
+class TestRound1OnlyClosure(unittest.TestCase):
+    stats = run_round1_only()
+
+    def test_retest_is_recorded_as_not_completed(self):
+        rt = self.stats["test_retest"]
+        self.assertEqual(rt["status"], "not_completed")
+        self.assertFalse(rt["reply_quality_agreement_reported"])
+        self.assertFalse(rt["later_retest_blind"])
+        for absent in ("per_dimension", "pooled", "responses"):
+            self.assertNotIn(absent, rt)
+        self.assertNotIn("kappa", json.dumps(rt).lower())
+
+    def test_round1_statistics_match_the_full_analysis(self):
+        full = cached_analysis()
+        for section in ("systems", "paired_comparisons", "claim_flags_vs_human_claim_safety", "llm_behaviour"):
+            self.assertEqual(self.stats[section], full[section], section)
+
+    def test_provenance_scope_and_hashes(self):
+        p = self.stats["provenance"]
+        self.assertEqual(p["scope"], "round 1 only; retest not completed")
+        self.assertEqual(set(p["input_sha256"]), {"round1_rated", "round1_blank"})
+        self.assertEqual(p["counts"]["retest_responses"], 0)
+        self.assertEqual(p["seeds"], {"item_bootstrap": 42})
+        self.assertIsNone(p["retest_validation"])
+
+    def test_inputs_must_match_the_mode(self):
+        key, blank_rows, rated_rows = fixture_round1()
+        retest_key, retest_blank, retest_rated = fixture_retest(key, rated_rows)
+        with self.assertRaises(ValueError):
+            run_round1_only(retest_raw=render_rows(retest_rated, b.RETEST_COLUMNS))
+        with self.assertRaises(ValueError):
+            run_analysis(retest_key=None)
+
+    def test_round1_validation_still_applies(self):
+        key, blank_rows, rated_rows = fixture_round1()
+        rows = [dict(r) for r in rated_rows]
+        rows[0]["relevance"] = "4.0"
+        with self.assertRaises(ar.RatingValidationError):
+            run_round1_only(round1_raw=render_rows(rows))
+
+    def test_rater_disclosure_is_recorded_and_rendered(self):
+        stats = run_round1_only(rater=ar.RATER_DISCLOSURE)
+        self.assertEqual(stats["provenance"]["rater"], ar.RATER_DISCLOSURE)
+        for phrase in ("system's developer", "AI-assisted", "not independent human ratings",
+                       "not inter-annotator"):
+            self.assertIn(phrase, ar.RATER_DISCLOSURE)
+        report = ar.render_report(stats)
+        self.assertIn("AI-assisted", report)
+        self.assertIn("**Not completed:**", report)
+        self.assertNotIn("Weighted κ", report)
+        self.assertEqual(self.stats["provenance"]["rater"], "synthetic fixture")
+
+    def test_cli_modes(self):
+        with mock.patch.object(ar, "read_ratings", side_effect=AssertionError("read")), \
+             mock.patch.object(ar.batch_builder, "rebuild_batch", side_effect=AssertionError("rebuilt")):
+            self.assertEqual(ar.main(["--round1", "x.csv", "--round1-only"]), 2)
+            with self.assertRaises(SystemExit):
+                ar.main(["--round1", "x.csv", "--round1-only", "--retest", "y.csv", "--confirm-real-ratings"])
+            with self.assertRaises(SystemExit):
+                ar.main(["--round1", "x.csv", "--confirm-real-ratings"])
+
+    def test_round1_only_output_paths_are_separate_and_ignored(self):
+        self.assertNotEqual(ar.ROUND1_REPORT_JSON, ar.REPORT_JSON)
+        self.assertEqual(ar.ROUND1_REPORT_JSON.parent, config.REPORTS_DIR)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

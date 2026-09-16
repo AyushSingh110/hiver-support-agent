@@ -6,6 +6,10 @@ paths and --confirm-real-ratings, and it requires the retest file as well, so ro
 results cannot be computed before the retest exists.
 
     python -m src.analyse_reply_ratings --round1 PATH --retest PATH --confirm-real-ratings
+    python -m src.analyse_reply_ratings --round1 PATH --round1-only --confirm-real-ratings
+
+--round1-only formally closes the retest as not completed (D48): no agreement statistic is
+computed, and a later retest could no longer be blind to the round-1 results.
 
 Every comparison between systems is descriptive: nothing here ranks systems or picks a winner.
 """
@@ -52,6 +56,19 @@ RATED_RETEST = batch_builder.HUMAN_EVAL_DIR / "reply_rating_retest_rated.csv"
 REAL_RATING_FILES = frozenset({batch_builder.RATED_R01.resolve(), RATED_RETEST.resolve()})
 REPORT_JSON = config.REPORTS_DIR / "phase6f_reply_ratings.json"
 REPORT_MD = config.REPORTS_DIR / "phase6f_reply_ratings.md"
+ROUND1_REPORT_JSON = config.REPORTS_DIR / "phase6f_reply_ratings_round1.json"
+ROUND1_REPORT_MD = config.REPORTS_DIR / "phase6f_reply_ratings_round1.md"
+
+RETEST_NOT_COMPLETED = {
+    "status": "not_completed",
+    "reason": "the 72-hour minimum gap had not elapsed before the submission deadline; the "
+              "blinded retest batch was built but never rated",
+    "reply_quality_agreement_reported": False,
+    "later_retest_blind": False,
+}
+RATER_DISCLOSURE = ("Single annotator: the system's developer. The rater states the ratings were "
+                    "AI-assisted. These are not independent human ratings, not inter-annotator "
+                    "agreement, and not validated ground truth.")
 
 
 class RatingValidationError(ValueError):
@@ -342,12 +359,19 @@ def retest_agreement(retest_raw: bytes, retest_key: list[dict], table: list[dict
 # --------------------------------------------------------------------------- orchestration
 
 def analyse(*, round1_raw: bytes, round1_blank_raw: bytes, key: list[dict], automated: dict,
-            retest_raw: bytes, retest_blank_raw: bytes, retest_key: list[dict],
-            input_kind: str, extra_hashes: dict | None = None) -> dict:
+            retest_raw: bytes | None, retest_blank_raw: bytes | None, retest_key: list[dict] | None,
+            input_kind: str, extra_hashes: dict | None = None, round1_only: bool = False,
+            rater: str | None = None) -> dict:
+    """With round1_only=True the retest inputs must be None and no agreement is computed."""
     if input_kind not in ("synthetic", "real"):
         raise ValueError("input_kind must be 'synthetic' or 'real'")
+    retest_given = [retest_raw is not None, retest_blank_raw is not None, retest_key is not None]
+    if round1_only and any(retest_given):
+        raise ValueError("round1_only analysis must not receive retest inputs")
+    if not round1_only and not all(retest_given):
+        raise ValueError("full analysis needs the retest file, its blank batch and its key")
     round1_facts = require_valid_round1(round1_raw, round1_blank_raw, key)
-    retest_facts = validate_retest(retest_raw, retest_blank_raw)
+    retest_facts = None if round1_only else validate_retest(retest_raw, retest_blank_raw)
     missing = {r["annotation_id"] for r in key} - set(automated)
     if missing:
         raise RatingValidationError(f"automated metadata missing for {len(missing)} items")
@@ -361,13 +385,16 @@ def analyse(*, round1_raw: bytes, round1_blank_raw: bytes, key: list[dict], auto
             "input_kind": input_kind,
             "input_sha256": {"round1_rated": sha256_bytes(round1_raw),
                              "round1_blank": sha256_bytes(round1_blank_raw),
-                             "retest_rated": sha256_bytes(retest_raw),
-                             "retest_blank": sha256_bytes(retest_blank_raw),
+                             **({} if round1_only else {"retest_rated": sha256_bytes(retest_raw),
+                                                        "retest_blank": sha256_bytes(retest_blank_raw)}),
                              **(extra_hashes or {})},
             "counts": {"items": len(items), "responses": len(table),
                        "rated_responses": sum(r["status"] == TO_BE_RATED for r in table),
-                       "retest_responses": len(retest_key)},
-            "seeds": {"item_bootstrap": MEAN_SEED, "retest_kappa_bootstrap": RETEST_KAPPA_SEED},
+                       "retest_responses": 0 if round1_only else len(retest_key)},
+            "seeds": {"item_bootstrap": MEAN_SEED,
+                      **({} if round1_only else {"retest_kappa_bootstrap": RETEST_KAPPA_SEED})},
+            "scope": "round 1 only; retest not completed" if round1_only else "round 1 and retest",
+            "rater": rater or "synthetic fixture",
             "bootstrap_resamples": BOOTSTRAP_RESAMPLES,
             "methodology": "D47. Item-level percentile bootstrap: whole items are resampled, so an "
                            "item's three responses stay together. Paired comparisons are "
@@ -379,7 +406,8 @@ def analyse(*, round1_raw: bytes, round1_blank_raw: bytes, key: list[dict], auto
         "paired_comparisons": paired_comparisons(table, draws),
         "claim_flags_vs_human_claim_safety": claim_flag_crosstab(table, automated),
         "llm_behaviour": llm_behaviour_breakdowns(table, automated),
-        "test_retest": retest_agreement(retest_raw, retest_key, table),
+        "test_retest": (dict(RETEST_NOT_COMPLETED) if round1_only
+                        else retest_agreement(retest_raw, retest_key, table)),
     }
 
 
@@ -411,9 +439,12 @@ def render_report(stats: dict) -> str:
     lines = [
         "# Phase 6F — Human reply-quality ratings",
         "",
-        f"Input: **{p['input_kind']}**. Analysis version {p['analysis_version']}. One annotator, who "
-        "also built the system. Blinding was weak (Baseline B is a fixed sentence and Baseline A "
-        "repeats evidence item 1). Comparisons are descriptive: no ranking and no winner.",
+        f"Input: **{p['input_kind']}**. Analysis version {p['analysis_version']}. Scope: {p['scope']}.",
+        "",
+        f"**Rater:** {p['rater']}",
+        "",
+        "Blinding was weak: Baseline B is a fixed sentence and Baseline A repeats evidence item 1. "
+        "Comparisons are descriptive: no ranking and no winner.",
         "",
         "## Ratings by system",
         "",
@@ -443,6 +474,11 @@ def render_report(stats: dict) -> str:
     lines += [f"- {k}: {v['rated']} rated, claim safety ≤2 in {v['claim_safety_le_2']} "
               f"(share {fmt(v['share_claim_safety_le_2'])})" for k, v in decisions.items()]
     rt = stats["test_retest"]
+    if rt.get("status") == "not_completed":
+        lines += ["", "## Test-retest", "",
+                  f"**Not completed:** {rt['reason']}. No reply-quality agreement statistic is "
+                  "reported, and a later retest would no longer be blind to these results.", ""]
+        return "\n".join(lines)
     lines += ["", "## Test-retest", "", f"{rt['measurement']}. {rt['responses']} responses.", "",
               "| Dimension | Exact | Within 1 | Mean abs. diff | Weighted κ [95% CI] |",
               "| --- | --- | --- | --- | --- |"]
@@ -457,7 +493,9 @@ def render_report(stats: dict) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--round1", type=Path, required=True)
-    parser.add_argument("--retest", type=Path, required=True)
+    scope = parser.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--retest", type=Path)
+    scope.add_argument("--round1-only", action="store_true")
     parser.add_argument("--confirm-real-ratings", action="store_true")
     args = parser.parse_args(argv)
     if not args.confirm_real_ratings:
@@ -465,9 +503,22 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     round1_raw = read_ratings(args.round1, allow_real=True)
-    retest_raw = read_ratings(args.retest, allow_real=True)
     r01 = batch_builder.rebuild_batch()
     round1_blank = batch_builder.BLANK_R01.read_bytes()
+    if args.round1_only:
+        if round1_blank != r01["blank"]:
+            raise RatingValidationError("round-1 blank file differs from the frozen rebuild")
+        stats = analyse(round1_raw=round1_raw, round1_blank_raw=round1_blank, key=r01["batch"]["key"],
+                        automated=load_automated_metadata(), retest_raw=None, retest_blank_raw=None,
+                        retest_key=None, input_kind="real", round1_only=True, rater=RATER_DISCLOSURE,
+                        extra_hashes={"evaluation_rows": sha256_bytes(batch_builder.EVALUATION_ROWS.read_bytes())})
+        config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        ROUND1_REPORT_JSON.write_text(json.dumps(stats, indent=2), encoding="utf-8")
+        ROUND1_REPORT_MD.write_text(render_report(stats), encoding="utf-8")
+        print(f"wrote {ROUND1_REPORT_JSON} and {ROUND1_REPORT_MD}")
+        return 0
+
+    retest_raw = read_ratings(args.retest, allow_real=True)
     retest_blank = batch_builder.BLANK_RETEST.read_bytes()
     if round1_blank != r01["blank"]:
         raise RatingValidationError("round-1 blank file differs from the frozen rebuild")
@@ -478,6 +529,7 @@ def main(argv: list[str] | None = None) -> int:
     stats = analyse(round1_raw=round1_raw, round1_blank_raw=round1_blank, key=r01["batch"]["key"],
                     automated=load_automated_metadata(), retest_raw=retest_raw,
                     retest_blank_raw=retest_blank, retest_key=retest["key"], input_kind="real",
+                    rater=RATER_DISCLOSURE,
                     extra_hashes={"evaluation_rows": sha256_bytes(batch_builder.EVALUATION_ROWS.read_bytes())})
     config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_JSON.write_text(json.dumps(stats, indent=2), encoding="utf-8")

@@ -1,0 +1,8 @@
+# Data files are stored byte for byte. Their SHA-256 values are recorded in manifests,
+# the decision log and artifacts/phase6/SHA256SUMS; line-ending conversion would change
+# them, and would also rewrite line breaks inside quoted CSV cells.
+*.csv   -text
+*.jsonl -text
+*.json  -text
+*.txt   -text
+SHA256SUMS -text

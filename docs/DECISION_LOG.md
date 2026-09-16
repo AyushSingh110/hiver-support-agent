@@ -1400,6 +1400,108 @@ written before any rating is returned, and the results will be recorded in a lat
 
 ---
 
+## D48 — Phase 6F closed at submission: round 1 analysed descriptively, retest not completed
+
+**What happened, in order:**
+1. **Batch built.** The blinded round-1 batch (D47) was built at 2026-09-16 20:54:46 +05:30.
+2. **Round 1 rated.** The rated file was last saved at 21:39:47, about 45 minutes later; this
+   is the recorded round-1 completion time.
+3. **First validation failed on format only.** All 595 scores were serialised as `N.0`. With
+   the rater's approval, the file was re-saved with plain integers:
+   - only those 595 cells changed, and each value is unchanged;
+   - the writer reproduced the original file byte for byte before the change;
+   - the file's modification time was restored;
+   - SHA-256 went from `70ddf02f…` to `72d379f8…`.
+
+   The validator was not loosened.
+4. **Analysis code written, but after round 1 came back.** D47 said this code would exist
+   before any rating was returned. `src/analyse_reply_ratings.py` was in fact written
+   **after** round 1 was returned, but **without reading it**:
+   - every test uses synthetic data;
+   - a guard refuses the real rating files unless explicitly allowed;
+   - no round-1 value was printed until step 6.
+5. **Retest batch built.** 36 responses, seed 47, blinded; earliest allowed start
+   2026-09-19 21:39:47, preferred 2026-09-23 21:39:47.
+6. **Submission day (2026-09-17).** The retest could not be run. It is **formally closed as
+   not completed**, and round 1 was then analysed descriptively (`--round1-only`). Because
+   round-1 results are now known, **a later retest would not be blind**; none is planned
+   under this protocol.
+
+**Who rated, and how to describe it.**
+- **Rater:** one person, the system's developer. The rater states the ratings were
+  **AI-assisted**.
+- **So they are not** independent human ratings, not inter-annotator agreement, and not
+  validated ground truth.
+- **Blinding was weak** (D47).
+- **Response R091** (the one empty LLM reply) was left unrated as designed. Its `notes`
+  field contains text, which was never read or used.
+- **No reply-quality agreement statistic exists.**
+- **The Phase 5 intent-label retest is a different measurement and stays separate:** 45
+  items, 84.4% raw agreement, Cohen's κ 0.8281, 95% CI [0.7039, 0.9254], a 12–14-hour gap.
+
+**Round-1 results** (`reports/phase6f_reply_ratings_round1.md`; means on the 1–5 scale,
+item-level bootstrap intervals in the report):
+
+| | LLM (n=39) | Baseline A (n=40) | Baseline B (n=40) |
+| --- | --- | --- | --- |
+| relevance | 4.85 | 3.73 | 3.50 |
+| helpfulness | 4.41 | 3.05 | 1.90 |
+| groundedness | 4.64 | 3.35 | 4.88 |
+| information_request | 4.72 | 3.85 | 2.70 |
+| claim_safety | 4.79 | 3.98 | 5.00 |
+
+**Findings from the round-1 analysis:**
+- **Two auto-handled LLM replies were rated claim safety ≤2, and G2–G7 flagged neither**
+  (2 of 27 auto-handled LLM replies rated):
+  - b02_0096: *"We'd like to help you with a more comprehensive compensation"*;
+  - b02_0025: an invented description of how the check-in desk handles unpaid bag fees.
+
+  **The deterministic checks do not catch soft promises or invented procedures.**
+- **All 40 Baseline A replies carry a G7 flag, by construction;** 9 of them were rated
+  claim safety ≤2.
+- **Baseline B scores high on claim safety and groundedness, and low on helpfulness.**
+  That follows from what a fixed generic reply is.
+
+All comparisons are descriptive.
+
+**Consequence:** reply-quality evidence in this submission is limited to one
+developer-rated, AI-assisted, weakly blinded, unreplicated round of 119 ratings. It is
+reported as such and must not be cited as independent evidence of quality.
+
+---
+
+## D49 — Submission packaging: tracked 6C outputs, byte-exact data files, one reproduction command
+
+**Problem:** the headline evaluation depends on the recorded Phase 6C LLM outputs, which
+lived only under the gitignored `data/`. Regenerating them needs Ollama and about an hour,
+and cannot be guaranteed byte-identical (b01_0001). Separately, Git's `core.autocrlf=true`
+was storing the golden and human-evaluation CSVs with converted line endings. A clone would
+therefore not match the recorded SHA-256 values, and the round-1 blank batch would fail its
+byte-for-byte rebuild.
+
+**Chosen:**
+1. **Track the three recorded 6C files** in `artifacts/phase6/`, byte-identical to the run
+   of record (`SHA256SUMS`). The golden messages and labels they contain are already tracked
+   in `golden/`.
+2. **Add `.gitattributes`** marking `*.csv`, `*.jsonl`, `*.json` and `*.txt` as `-text`, so
+   data files are stored byte for byte. The final commit re-adds them with
+   `--renormalize`; their content does not change.
+3. **Add `python -m src.reproduce_headline`**, which runs the deterministic pipeline from
+   the raw CSV:
+   - it checks and restores the 6C files;
+   - it rebuilds the ignored reports the evaluation reads (escalation calibration, and the
+     Phase 5 retest key and agreement);
+   - it runs the evaluation and the round-1 descriptive analysis;
+   - it confirms `evaluation_rows.jsonl` matches the recorded run byte for byte.
+4. **Ignore `golden/retest_r01_blank.csv`**, which the Phase 5 retest builder regenerates.
+
+**Tradeoff:** about 1.8 MB of derived data is now tracked, a deliberate exception to D13 and
+D27, because without it the headline numbers cannot be reproduced without an LLM.
+`python -m src.build_reply_rating_batch --verify` still needs the local generation cache
+(its evidence check reads it), so it remains a development-machine check.
+
+---
+
 *Further decisions are appended as later phases are implemented.*
 
 

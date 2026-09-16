@@ -548,6 +548,9 @@ field is never read). **Outputs:** `reports/phase6f_reply_ratings.{json,md}`.
 **Dependencies:** numpy, sklearn (`cohen_kappa_score`), `src.build_reply_rating_batch`.
 **No model, no network.**
 
+**Modes.** `--retest PATH` runs the full analysis. `--round1-only` runs round 1
+alone and records the retest as not completed; this was the mode used at submission (D48).
+
 **Safety.**
 - `read_ratings` refuses to read the real rating files unless `allow_real=True` is passed.
 - The command line needs explicit `--round1` and `--retest` paths plus
@@ -581,6 +584,39 @@ descriptive only.
 - κ is reported as undefined when both rounds use a single shared value.
 - A pooled figure is also given, labelled non-independent, alongside the score
   distributions.
+
+---
+
+### `src/reproduce_headline.py` 🟡
+
+**Purpose:** one command that reproduces the headline deterministic evaluation from the raw
+CSV, **without an LLM** (D49).
+
+**What it does:**
+1. Runs profiling, reconstruction and corpus building.
+2. Checks `artifacts/phase6/SHA256SUMS` and copies the recorded 6C generations into
+   `data/processed/phase6/`. It refuses to overwrite a different file.
+3. Rebuilds the ignored reports the evaluation reads: escalation calibration, and the
+   Phase 5 retest key and agreement.
+4. Runs `src.evaluate --confirm-golden-run`, then the round-1 reply-rating analysis
+   (`--round1-only`).
+
+It prints per-step timings and exits with status 0 only if `evaluation_rows.jsonl` is
+byte-identical to the recorded run.
+
+### `src/run_golden_generation.py`, `src/retry_golden_generation.py` ⚪
+
+The historical Phase 6C golden run and its single infrastructure retry, **kept unchanged**.
+
+- They run their full job as soon as they are imported, so **nothing may import them**.
+- They contain a hard-coded `sys.path` entry, which is harmless when run with `python -m`.
+
+### `artifacts/phase6/` ⚪ (tracked)
+
+`golden_generation_records.jsonl`, `golden_generation_retry1.jsonl` and
+`golden_generation_final.jsonl` are the run of record for all generation results, together
+with `SHA256SUMS`. They are byte-identical to the originals and are **the only tracked
+derived data** (D49).
 
 ---
 
