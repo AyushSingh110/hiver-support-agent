@@ -1311,6 +1311,95 @@ unsupported claims. A further revision would be fitting the judge to its own fai
 
 ---
 
+## D47 — Human reply-quality evaluation: design and analysis fixed before any rating
+
+**Problem:** G1–G7 detect specific patterns, but not whether a reply is relevant, helpful,
+grounded, asks for the right information, or avoids unsupported claims. The LLM judge meant
+to measure this failed validation (D46). The only annotator is the person who built the
+system.
+
+**Chosen:** a small, blinded, single-annotator rating of the **frozen** replies, fixed in
+full before any rating exists.
+
+**Sample:**
+- **Population:** the 248 frozen Phase 6E rows, minus five whose message or reply text was
+  shown during development: `b01_0001`, `b01_0019`, `b01_0057`, `b01_0074`, `b02_0012`.
+  This leaves 243 rows.
+- **Draw:** 40 rows by proportional stratified random sampling over batch × escalation
+  decision (seed 46, largest-remainder allocation 16 / 7 / 11 / 6). Selection uses no gold
+  or predicted intent, quality signal, G1–G7 result or similarity.
+- **Responses:** all three systems (LLM, Baseline A, Baseline B) for each item, so 120
+  responses and 600 ratings. **No reply was regenerated, and retrieval was not rerun.**
+
+**Blinding and evidence:**
+- **Layout:** one row per response. All 120 rows are shuffled (seed 46) so no two neighbours
+  share an item. Ids are opaque: `I01`–`I40` and `R001`–`R120`.
+- **What the rater sees:** the sanitised message, the five evidence items and the reply.
+  The rater never sees the system, any id, gold or predicted intent, confidence, escalation,
+  G1–G7, similarity or parse status.
+- **The system mapping is never written to disk.** It is rebuilt from the frozen inputs and
+  the seed, and `human_eval/reply_rating_manifest.json` stores only its SHA-256.
+- **Evidence** is rebuilt from the frozen retrieved conversation ids and formatted with
+  `generate_reply.format_evidence`. All 40 rebuilt generation prompts matched entries in the
+  production cache, which was only read. So the rater sees exactly the evidence the
+  generator saw.
+- **One sampled LLM reply is empty.** It was not replaced; it is shown as a `[NOT RATED ...]`
+  row and recorded as `not_rated_empty_reply`.
+
+**Rubric:** 1–5 for relevance, helpfulness, groundedness, information request and claim
+safety, with anchors at 1, 3 and 5 (`human_eval/reply_rating_rubric.md`). Claim safety counts
+only statements of what was done or is true:
+- requests, apologies, sympathy and conditional offers are not claims;
+- evidence about another customer is not fact about this one;
+- an unsupported claim lowers only claim safety.
+
+**Test-retest (Stage 3):**
+- **Subset:** 36 rated responses, 12 per system, seed 47, with new opaque ids and a new
+  order.
+- **Gap:** at least 72 hours, 7 days preferred, with times recorded.
+- **Round-1 results stay unseen:** they are not computed or shown until the retest is done.
+- **Reported only as intra-annotator short-gap test-retest agreement.** It is separate from
+  the Phase 5 intent-label retest.
+
+**Pre-declared analysis** (no gold label is read):
+1. **Scores per system and dimension:**
+   - n, mean, median, 1–5 distribution;
+   - share ≤2 and share ≥4;
+   - item-level bootstrap interval for the mean (2,000 resamples, seed 42).
+2. **Paired comparisons per dimension** (LLM − Baseline B and LLM − Baseline A):
+   - win/tie/loss, mean difference, item-level bootstrap interval;
+   - **descriptive only, with no ranking and no winner.**
+3. **Human claim safety ≤2 against G2–G7 flags,** per system.
+4. **LLM replies by escalation decision,** especially the share of **auto-handled replies
+   with claim safety ≤2**.
+5. **LLM `needs_more_information` against the information-request score.**
+6. **Retest agreement:**
+   - per dimension: exact agreement, agreement within one point, mean absolute difference,
+     and quadratic-weighted Cohen's κ with a bootstrap interval (2,000 resamples, seed 44);
+   - pooled across the 180 pairs, noting they are not independent;
+   - score distributions alongside κ, because clustered scores can make κ misleadingly low.
+
+**Independence:**
+- The ratings never feed back into any system component.
+- They live in `human_eval/`, apart from `golden/`, and are never joined to the gold labels.
+- The rater labelled these messages in Phase 5; the intent stays hidden, and that
+  familiarity is disclosed.
+- A non-golden sample would have needed new replies, which this phase excludes.
+
+**Tradeoffs and limitations:**
+- **Blinding is weak.** Baseline B is a fixed sentence and Baseline A repeats evidence
+  item 1, so the LLM reply can be identified by elimination. Ratings are therefore absolute
+  ratings against the rubric, and comparisons are descriptive only.
+- **Single annotator who built the system.**
+- **Forty items give wide intervals.**
+- **Fatigue, order and memory effects.**
+- **Not validated ground truth.**
+
+**Consequence:** Stage 1 built only the blank batch and the manifest. The analysis code is
+written before any rating is returned, and the results will be recorded in a later entry.
+
+---
+
 *Further decisions are appended as later phases are implemented.*
 
 

@@ -507,6 +507,83 @@ A dimension that failed to parse counts as failing the criterion that uses it.
 
 ---
 
+### `src/build_reply_rating_batch.py` 🔴
+
+**Purpose:** Phase 6F. Build the blinded human reply-quality batch (D47).
+
+**Inputs:** `data/processed/phase6/evaluation_rows.jsonl` and `retrieval_corpus.parquet`,
+both frozen. The production LLM cache is **read only**, to check the evidence.
+**Outputs:** `human_eval/reply_rating_r01_blank.csv` and `human_eval/reply_rating_manifest.json`.
+
+**Dependencies:** numpy, pandas, `src.generate_reply` (formatting only) and
+`src.llm._cache_key` (a hash function; nothing calls a model). **No retrieval rerun, no
+generation, no network, no gold labels.** `--verify` rebuilds the batch and compares it
+byte for byte with disk.
+
+#### Functions that matter
+
+**`restrict_row` 🔴.** Each frozen row is reduced to the fields that sampling, display and
+the evidence check need. The `gold` field is never read, and a test enforces this.
+
+**`build_batch` 🔴.** Builds the population and the largest-remainder allocation, draws
+the sample, assigns shuffled item ids, and shuffles responses so no two neighbours share an
+item. It returns the rows for the CSV, the hidden key and the manifest core. The key is
+never written; only its SHA-256 is.
+
+**`verify_evidence_against_generation` 🟡.** Rebuilds each generation prompt from the
+rebuilt evidence and checks that a matching production cache entry exists. This proves the
+rater sees the evidence the generator saw.
+
+---
+
+### `src/analyse_reply_ratings.py` 🔴
+
+**Purpose:** Phase 6F. Analyses the human reply ratings exactly as declared in D47.
+
+**Inputs:** rating files given as explicit paths, the frozen blank batches, the hidden keys
+(rebuilt by `src/build_reply_rating_batch.py`), and the frozen G-flags,
+`needs_more_information` and escalation decisions from `evaluation_rows.jsonl` (the `gold`
+field is never read). **Outputs:** `reports/phase6f_reply_ratings.{json,md}`.
+
+**Dependencies:** numpy, sklearn (`cohen_kappa_score`), `src.build_reply_rating_batch`.
+**No model, no network.**
+
+**Safety.**
+- `read_ratings` refuses to read the real rating files unless `allow_real=True` is passed.
+- The command line needs explicit `--round1` and `--retest` paths plus
+  `--confirm-real-ratings`, so round-1 results cannot be computed before the retest exists.
+- The module never searches for rating files.
+- It was written and tested on synthetic ratings only; the real round-1 file was not read
+  while building it.
+
+#### Functions that matter
+
+**`require_valid_round1` / `validate_retest` 🔴.**
+- Round 1 goes through the unchanged strict validator in the batch builder, plus a check
+  that the system mapping has exactly one response per system per item.
+- The retest must be fully rated, with its ids, text and columns unchanged.
+
+**`item_resamples` and `bootstrap_mean_interval` 🔴.**
+- Percentile bootstrap (2,000 resamples, seed 42) over **whole items**, so an item's three
+  responses always stay together.
+- One draw matrix serves every system and every paired difference.
+
+**`paired_comparisons` 🟡.** LLM − Baseline B and LLM − Baseline A for each dimension:
+first higher, tie, second higher, mean difference and an item-level interval. These are
+descriptive only.
+
+**`claim_flag_crosstab` 🟡.** G2–G7 flags against human claim safety ≤2, per system. G1
+(empty reply) is not a claim flag.
+
+**`retest_agreement` 🔴.**
+- Per dimension: exact agreement, agreement within one point, mean absolute difference,
+  quadratic-weighted κ on the fixed 1–5 scale, and a bootstrap over retest units (seed 44).
+- κ is reported as undefined when both rounds use a single shared value.
+- A pooled figure is also given, labelled non-independent, alongside the score
+  distributions.
+
+---
+
 ## Hand-authored files, not generated
 
 | File | Nature |
@@ -524,9 +601,19 @@ A dimension that failed to parse counts as failing the criterion that uses it.
 | `golden/golden_exclusion_ids.txt` | 248 conversation IDs - layer 1 of downstream exclusion |
 | `golden/golden_customer_exclusion_ids.txt` | 248 customer IDs - layer 2. Neither layer catches cross-customer duplicates; see D39 |
 | `golden/retest_r01_blank.csv` | 45 opaque rows for intra-annotator retest. **Frozen**; builder refuses to overwrite |
+| `human_eval/README.md` | **Hand-written.** Phase 6F rating procedure, blinding, limitations and rules for the rater (D47) |
+| `human_eval/reply_rating_rubric.md` | **Hand-written.** The 1–5 reply-quality rubric, including the claim-safety rules |
+| `human_eval/reply_rating_r01_blank.csv` | 120 blinded responses (40 items × 3 systems). Written by `src/build_reply_rating_batch.py`, which refuses to overwrite it with different content |
+| `human_eval/reply_rating_manifest.json` | Sampling, blinding and input provenance with hashes. **Contains no system mapping.** Not to be opened while rating |
+| `human_eval/reply_rating_r01_rated.csv` | **Written by the annotator.** No code writes to this path. Round-1 ratings; validated, not yet analysed |
+| `human_eval/reply_rating_retest_blank.csv` | 36 blinded retest rows (`T01`–`T36`), written by `src/build_reply_rating_batch.py --retest` |
+| `human_eval/reply_rating_retest_manifest.json` | Round-1 structural validation facts, retest timing, seed and hashes. **No ratings and no system mapping** |
 
 `golden/` is the one directory deliberately **not** gitignored — hand labels cannot
 be regenerated from code. See D27.
+
+`human_eval/` (Phase 6F) is also tracked, for the same reason: human ratings cannot be
+regenerated from code. It is kept apart from `golden/`. See D47.
 
 ---
 

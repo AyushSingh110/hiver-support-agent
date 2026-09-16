@@ -1,0 +1,143 @@
+{
+  "phase": "6F human reply-quality evaluation",
+  "round": "r01",
+  "status": "blank batch built; no ratings exist",
+  "gold_labels_read": false,
+  "inputs_sha256": {
+    "evaluation_rows.jsonl": "a28dc0881327959ddf320b05d437d8a0376387ed07a8ea186e17bc583deec081",
+    "retrieval_corpus.parquet": "14c95fde770f43d813ae36d730ceab2d1c6a29c2c0861692c343bbfa8d621d45"
+  },
+  "population": {
+    "source_rows": 248,
+    "excluded_prior_exposure": [
+      "b01_0001",
+      "b01_0019",
+      "b01_0057",
+      "b01_0074",
+      "b02_0012"
+    ],
+    "population_rows": 243,
+    "strata_population": {
+      "b01/auto_handle": 99,
+      "b01/escalate": 45,
+      "b02/auto_handle": 66,
+      "b02/escalate": 33
+    }
+  },
+  "sampling": {
+    "method": "proportional stratified random sampling by batch x escalation decision, largest-remainder allocation; numpy default_rng, choice without replacement over each stratum sorted by annotation_id",
+    "seed": 46,
+    "sample_size": 40,
+    "allocation": {
+      "b01/auto_handle": 16,
+      "b01/escalate": 7,
+      "b02/auto_handle": 11,
+      "b02/escalate": 6
+    },
+    "selection_signals": [
+      "batch",
+      "escalation decision"
+    ],
+    "sampled_annotation_ids": [
+      "b01_0009",
+      "b01_0012",
+      "b01_0013",
+      "b01_0015",
+      "b01_0021",
+      "b01_0030",
+      "b01_0032",
+      "b01_0037",
+      "b01_0039",
+      "b01_0059",
+      "b01_0067",
+      "b01_0078",
+      "b01_0091",
+      "b01_0092",
+      "b01_0097",
+      "b01_0101",
+      "b01_0113",
+      "b01_0116",
+      "b01_0119",
+      "b01_0123",
+      "b01_0126",
+      "b01_0132",
+      "b01_0148",
+      "b02_0001",
+      "b02_0021",
+      "b02_0024",
+      "b02_0025",
+      "b02_0033",
+      "b02_0047",
+      "b02_0048",
+      "b02_0051",
+      "b02_0053",
+      "b02_0059",
+      "b02_0076",
+      "b02_0082",
+      "b02_0087",
+      "b02_0092",
+      "b02_0093",
+      "b02_0096",
+      "b02_0099"
+    ],
+    "selection_sha256": "6a450a95aa7decb995bcb72860b302257c3803137ead37e4587b094d42b57164"
+  },
+  "blinding": {
+    "items": 40,
+    "responses": 120,
+    "systems_per_item": 3,
+    "item_ids": "I01-I40, assigned after shuffling the sampled rows",
+    "response_ids": "R001-R120, assigned after shuffling all responses",
+    "no_adjacent_same_item": true,
+    "shuffle_attempts": 21,
+    "mapping_written_to_disk": false,
+    "mapping_rebuild": "rebuild_batch() from the frozen inputs and the declared seed",
+    "mapping_sha256": "260a1b405c52162d59077bf386a6984c759848b53dd68c18935860e117c3568a",
+    "responses_not_rated_empty_reply": 1
+  },
+  "evidence": {
+    "source": "frozen retrieved conversation ids in evaluation_rows.jsonl, text from the frozen retrieval corpus, formatted with generate_reply.format_evidence",
+    "retrieval_rerun": false,
+    "check": {
+      "items_checked": 40,
+      "generation_prompts_found_in_cache": 40,
+      "missing": []
+    }
+  },
+  "outputs": {
+    "blank_csv": "reply_rating_r01_blank.csv",
+    "blank_csv_sha256": "ab454f9495d267a0737077939e03aee7c964a67a1061fd7ac09b25819c9e7de9",
+    "columns": [
+      "response_id",
+      "item_id",
+      "customer_message",
+      "evidence_1",
+      "evidence_2",
+      "evidence_3",
+      "evidence_4",
+      "evidence_5",
+      "candidate_reply",
+      "relevance",
+      "helpfulness",
+      "groundedness",
+      "information_request",
+      "claim_safety",
+      "notes"
+    ],
+    "score_columns": [
+      "relevance",
+      "helpfulness",
+      "groundedness",
+      "information_request",
+      "claim_safety"
+    ]
+  },
+  "retest_plan": {
+    "responses": 36,
+    "per_system": 12,
+    "seed": 47,
+    "minimum_gap_hours": 72,
+    "preferred_gap_days": 7,
+    "status": "planned for Stage 3; not built"
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "phase": "6F human reply-quality evaluation",
+  "round": "retest",
+  "status": "round 1 received and validated; blank retest batch built; no retest ratings exist",
+  "gold_labels_read": false,
+  "round1": {
+    "file": "reply_rating_r01_rated.csv",
+    "sha256": "72d379f874ad848078c7cbf613f42b6c2682cb868a1849e92c839946d69aaf76",
+    "blank_sha256": "ab454f9495d267a0737077939e03aee7c964a67a1061fd7ac09b25819c9e7de9",
+    "validation": {
+      "columns_exact": true,
+      "row_count": 120,
+      "expected_row_count": 120,
+      "response_ids_unique": true,
+      "response_ids_match_blank_in_order": true,
+      "item_ids_expected": 40,
+      "item_ids_found": 40,
+      "text_unchanged": true,
+      "text_mismatches": [],
+      "scores_are_blank_or_integers_1_to_5": true,
+      "invalid_score_cells": [],
+      "ratable_expected": 119,
+      "ratable_complete": 119,
+      "ratable_incomplete": [],
+      "unrated_expected": [
+        "R091"
+      ],
+      "unrated_rows_left_blank": true,
+      "unrated_notes_blank": false,
+      "prohibited_tokens": [],
+      "identifier_patterns": [],
+      "passed": true
+    },
+    "ratings_included_here": false
+  },
+  "timing": {
+    "round1_completed_at": "2026-09-16T21:39:47+05:30",
+    "round1_completed_at_basis": "last-modified time of reply_rating_r01_rated.csv",
+    "minimum_gap_hours": 72,
+    "preferred_gap_days": 7,
+    "earliest_retest_start": "2026-09-19T21:39:47+05:30",
+    "preferred_retest_start": "2026-09-23T21:39:47+05:30"
+  },
+  "retest": {
+    "seed": 47,
+    "responses": 36,
+    "systems": 3,
+    "responses_per_system": 12,
+    "drawn_from": "round-1 responses marked to_be_rated in the hidden key",
+    "retest_ids": "T01-T36, assigned after shuffling",
+    "no_adjacent_same_item": true,
+    "shuffle_attempts": 1,
+    "selection_sha256": "b95480d9f68304c0f16b4086f1263d9f970e3e6816800213ff3a999d9fba069c",
+    "mapping_sha256": "6d8584d3097dad05be152943f0650874d829bc22009d87cf9365075be0b0f8b2",
+    "mapping_written_to_disk": false,
+    "round1_ratings_included": false
+  },
+  "outputs": {
+    "blank_csv": "reply_rating_retest_blank.csv",
+    "blank_csv_sha256": "e2f726221066b2e2ea6ca9795d94abde52e0f07d6ecfe24312fd12c8edc2000a",
+    "columns": [
+      "retest_id",
+      "customer_message",
+      "evidence_1",
+      "evidence_2",
+      "evidence_3",
+      "evidence_4",
+      "evidence_5",
+      "candidate_reply",
+      "relevance",
+      "helpfulness",
+      "groundedness",
+      "information_request",
+      "claim_safety",
+      "notes"
+    ]
+  }
+}
