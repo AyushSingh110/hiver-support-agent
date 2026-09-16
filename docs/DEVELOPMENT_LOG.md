@@ -2056,3 +2056,107 @@ performance claim is made about any of these because none has been run.**
 ### Next step
 
 Retrieval over the 23,722-row corpus, measured against a random-evidence baseline.
+
+
+---
+
+## Phase 6b — Retrieval
+
+**Date:** 2026-09-16
+**Status:** Complete and measured. Generation not started.
+
+### Corpus semantics, checked rather than assumed
+
+`retrieval_corpus.parquet` was inspected before any code was written. **One row is one
+complete conversation** - 23,722 rows, 23,722 distinct `conversation_id`s - pairing the
+customer's opening with all brand turns concatenated. The filename alone would have
+suggested a turn-level table.
+
+Only `customer_message` is indexed. Queries are customer openings, so indexing
+`brand_reply` would match a problem against an answer and reward replies that echo the
+question's vocabulary. Brand replies are returned as evidence, never indexed.
+
+### Measured results (248 golden queries, identical pool for both systems)
+
+| system | k | availability | top-1 sim | intent consistency | queries with >=1 match |
+| --- | --- | --- | --- | --- | --- |
+| tfidf | 1 | 100% | 0.2853 | **41.30%** | **15.32%** |
+| random | 1 | 100% | 0.0 | 12.62% | 5.24% |
+| tfidf | 3 | 100% | 0.2853 | **38.52%** | **29.03%** |
+| random | 3 | 100% | 0.0 | 9.09% | 9.68% |
+| tfidf | 5 | 100% | 0.2853 | **39.83%** | **38.31%** |
+| random | 5 | 100% | 0.0 | 12.13% | 20.56% |
+
+TF-IDF beats random on intent consistency by roughly **3-4x** at every k, and on
+"queries with at least one matching item" by **2-3x**. The only difference between the
+systems is the selection rule: same pool, same k, same exclusions, no intent labels
+used for random selection.
+
+Random top-1 similarity is 0.0 because random items are not scored - reported as such
+rather than as a comparable number.
+
+### Two results worth noting honestly
+
+**Absolute similarity is low.** Mean top-1 cosine is **0.2853**, median 0.2592. Short
+informal tweets share few tokens even when they describe the same problem. This is the
+Phase 4 lexical limitation reappearing, and it caps how much TF-IDF retrieval can do.
+
+**Random retrieves *more* weak-labelled evidence than TF-IDF** - 40.56% vs 38.06% at
+k=5. That initially looks wrong. It is not: weak labels are assigned by keyword rules,
+so label-carrying conversations are over-represented among *keyword-dense* messages,
+and random sampling draws from the corpus distribution while TF-IDF concentrates on
+lexically-similar neighbours which are not necessarily rule-matching. Coverage of the
+label is not quality of the match - TF-IDF still wins decisively on whether the label
+*agrees*.
+
+### Two-turn evidence
+
+62.42% of TF-IDF evidence at k=5 is two-turn, close to the corpus baseline of 61.1%, so
+retrieval does not systematically prefer richer conversations. Mean similarity barely
+differs by shape: two-turn **0.2373** (n=774) vs multi-turn **0.2308** (n=466).
+
+**Retrieval quality does not differ materially between two-turn and multi-turn
+evidence.** Two-turn conversations are kept - they are legitimate historical responses.
+What they lack is any confirmation the response worked, which is why the report calls
+everything "historical response evidence" and never "resolution".
+
+### k selection
+
+The rule was declared before running: k=5 unless k=3 shows materially higher intent
+consistency. k=3 scored 38.52% against k=5's 39.83% - **1.31 points lower**, so **k=5
+stands**. Recorded as D42.
+
+### Failures
+
+Zero queries returned no evidence. Zero golden queries normalise to empty. Two have
+fewer than three tokens and still retrieved results.
+
+### Tests
+
+**31/31 pass** (17 existing + 14 new) in 1.4s. The new ones cover deterministic
+retrieval, stable tie ordering by `conversation_id`, self-exclusion by conversation and
+by customer, exact and near-duplicate golden exclusion through the shared function,
+random-baseline reproducibility and seed-sensitivity, empty and no-overlap queries,
+empty-corpus rejection, and output schema for both systems.
+
+A tie-ordering test was written deliberately: two corpus rows with identical text score
+identically, and without an explicit `lexsort` on `(-similarity, conversation_id)` the
+returned order would depend on numpy's sort implementation.
+
+### Determinism and integrity
+
+Re-run produced byte-identical JSON and Markdown. All five frozen artifacts unchanged.
+No Ollama, no models, no network, no new dependencies.
+
+### What this does not show
+
+Nothing about whether the retrieved response resolved anything, whether the evidence is
+useful to a generator, or whether intent consistency means correctness - query intents
+are **gold**, retrieved intents are **weak rule-based**, and only 39.7% of the corpus
+carries a weak label at all. `OTHER`, `UNCLEAR` and `non_support_commentary` are
+unrepresentable in the weak-label space, so golden queries carrying those can never
+register a match by construction.
+
+### Next step
+
+Phase 6C generation, grounded in this evidence.

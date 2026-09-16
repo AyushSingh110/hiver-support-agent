@@ -1072,5 +1072,36 @@ more informative experiment than assuming the answer.
 
 ---
 
+## D42 — k=5 for retrieval, by a rule declared before measuring
+
+**Problem:** Choosing k after seeing which value scores best on the golden set would be
+tuning on the evaluation data and reporting the result as unbiased.
+
+**Alternatives:** (a) sweep k and take the best; (b) fix k arbitrarily; (c) declare a
+selection rule in advance and apply it to whatever the numbers turn out to be.
+
+**Chosen:** (c). The rule, stated before the experiment ran: **k=5 unless k=3 shows
+materially higher intent consistency (>= 5 points) at comparable similarity.**
+
+**Outcome:** k=3 scored 38.52% intent consistency against k=5's 39.83% - 1.31 points
+*lower*, not higher. The rule therefore selects **k=5**, and it was applied rather than
+revisited.
+
+**Why this matters more than the value itself:** k=1 actually scores highest on
+intent consistency (41.30%), so a naive "pick the best number" would have chosen k=1.
+But k=1 gives a generator a single piece of evidence with no corroboration, and its
+"queries with at least one matching item" rate is only 15.32% against k=5's 38.31%.
+Optimising the headline metric would have produced the worse system. The pre-declared
+rule avoided that trap without needing to argue about it after the fact.
+
+**Tradeoff:** k=5 returns more weakly-related evidence per query, which the generator's
+grounding checks must tolerate.
+
+**Consequence:** k=5 is the default for Phase 6C generation, and the selection is
+defensible because the rule preceded the data.
+
+---
+
 *Further decisions are appended as later phases are implemented.*
+
 
