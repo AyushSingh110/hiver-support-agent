@@ -1102,6 +1102,127 @@ defensible because the rule preceded the data.
 
 ---
 
+## D43 — Escalation thresholds sized by a pre-declared percentile rule
+
+**Problem:** `ESCALATION_MIN_INTENT_CONFIDENCE = 0.50` and
+`ESCALATION_MIN_RETRIEVAL_SIMILARITY = 0.25` were added with the Phase 6 foundations as
+**placeholders**, with no recorded justification. The accompanying comment claimed they
+were "tuned on a dev split"; no such tuning ever happened. No escalation outcome labels
+exist, so no threshold can be tuned for accuracy on any data.
+
+**Alternatives:** (a) keep the placeholders; (b) choose values after looking at the
+golden run; (c) declare a traffic-sizing rule in advance and apply it to a golden-free pool.
+
+**Chosen:** (c). The rule, fixed before any value was computed: **`T_conf` = 20th
+percentile of intent confidence, and `T_sim` = 20th percentile of top-1 retrieval
+similarity, on a fixed development pool.** Produced by `src/calibrate_escalation.py`:
+
+| | |
+| --- | --- |
+| `T_conf` | **0.19128133486537377** |
+| `T_sim` | **0.198143** |
+| `ESCALATION_MIN_EVIDENCE_COUNT` | 2, unchanged |
+
+**Pool and procedure:**
+- **Pool:** 2,000 conversations drawn uniformly (seed 42) from the golden-free
+  retrieval corpus of 23,722 rows. Selection did not depend on intent or on Phase 4
+  clusters.
+- **Golden identifiers:** the corpus and pool were checked against golden conversation and
+  customer IDs and both exclusion files, with 0 matches; any match would have stopped the
+  script. Golden labels were never read.
+- **Retrieval:** each query excluded its own conversation and its own customer, with k=5,
+  the same as in 6C.
+- **Confidence:** 810 pool rows belong to the weak training set and were scored
+  **out-of-fold** (5 stratified folds). The other 1,190 were scored by the fitted
+  classifier, so no row was scored by a model that had trained on it. Medians differ
+  sharply (0.648 vs 0.220), so the confidence rule falls mostly on messages no keyword
+  rule matched.
+- **Similarity:** the percentile was computed over the **1,992 rows with at least one
+  retrieved item**. The **8 no-evidence rows were excluded** from that percentile because
+  they have no similarity score. They were still counted as weak and as insufficient in
+  the calibration diagnostics.
+- **Method:** `numpy.percentile(method="linear")`, compared with strict `<`. No pool row
+  equals either threshold exactly, and a check against `decide()` confirmed that a value
+  equal to a threshold does not fire.
+- **Reproducibility:** two runs gave byte-identical output.
+
+**What the numbers are not:** the thresholds are **not outcome-validated and not
+accuracy-optimised.** Each one sizes its rule to flag about 20% of development traffic,
+and nothing more is claimed. On the pool, the measurable rules together touch 40.35% of
+rows. That is not an escalation-rate forecast, because the full weak-grounding rule and
+the generation-dependent rules cannot be evaluated without replies.
+
+**Tradeoff:** a volume-based rule says nothing about whether the flagged messages are the
+right ones. It avoids tuning on the evaluation data and avoids unjustified constants.
+
+**Consequence:** the values are frozen and will be applied **unchanged** to the held-out
+golden evaluation in Phase 6E. Full provenance is in
+`reports/phase6_escalation_calibration.json`.
+
+---
+
+## D44 — Explicit human-review policy for two intents
+
+**Problem:** some predicted intents should reach a person whatever the classifier's
+confidence. Nothing in the dataset can establish which, because it contains no handling
+outcomes.
+
+**Chosen:** a **deliberate system policy, not a learned property of the dataset.**
+`HUMAN_REVIEW_POLICY_INTENTS` in `src/escalate.py` escalates, under the reason code
+`explicit_human_review_policy`:
+
+- **`staff_and_service_complaint`:** a specific staff interaction is involved, and human
+  review is intentionally required.
+- **`general_dissatisfaction`:** the taxonomy offers no sufficiently specific actionable
+  intent for safe automatic handling.
+
+**Not included:** `OTHER` and `UNCLEAR`. The classifier cannot predict them because they
+have no weak-label rules, and Phase 6D adds no way to predict them. `EscalationSignals`
+rejects them, and `non_support_commentary`, as input. Such messages can only reach a
+human through `low_intent_confidence`.
+
+**Relationship to `taxonomy.ALWAYS_ESCALATE`:** the older constant in `src/taxonomy.py`
+also contains `OTHER` and `UNCLEAR`, so it does not match this policy. **Phase 6D
+escalation does not use it.** It is left untouched, since `taxonomy.py` is outside this
+phase's scope, and it is superseded for escalation purposes.
+
+**Tradeoff:** the policy is an assumption about how a support team should work, and it
+is stated as one. On the development pool it covers 5.45% of rows.
+
+---
+
+## D45 — Escalation collects every reason and separates "needs details" from "unsafe"
+
+**Chosen:** `decide()` evaluates all seven rules without stopping early and emits codes
+in a fixed order:
+1. `generation_unusable`
+2. `grounding_check_failed`
+3. `invalid_evidence_citation`
+4. `insufficient_evidence`
+5. `explicit_human_review_policy`
+6. `low_intent_confidence`
+7. `weak_grounding_for_substantive_reply`
+
+Any code means `escalate`. The reason text is built from fixed templates.
+
+**Why:**
+- **Needs details vs weak grounding:** `needs_more_information=true` is not a failure. A
+  safe request for a record locator can go out automatically, so it adds only the
+  informational code `awaiting_customer_details`. Low similarity escalates only when the
+  reply gives a **substantive** answer.
+- **Parse failures:** rules that read parsed fields (3 and 7) are skipped when parsing
+  failed. `generate_llm` fills `needs_more_information=False` on failure, and that value
+  must not be read as a substantive answer.
+- **Citations:** `invalid_evidence_citation` exists because the parser checks rank types
+  but not ranks against the retrieved count.
+- **Recorded but unused:** `evidence_used_coerced` and evidence–intent agreement are kept
+  in the record but never decide anything. The first reflects formatting; the second is
+  noise, since 62% of evidence items carry no weak label.
+- **No praise exemption:** praise with weak retrieval and a substantive reply escalates
+  like anything else, and the volume is reported in 6E.
+
+---
+
 *Further decisions are appended as later phases are implemented.*
 
 

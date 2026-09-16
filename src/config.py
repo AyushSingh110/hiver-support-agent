@@ -49,8 +49,9 @@ OLLAMA_TIMEOUT_SECONDS = 300
 
 NEAR_DUPLICATE_THRESHOLD = 0.8
 
-# Escalation thresholds. Tuned on a dev split from training data, never on golden.
-ESCALATION_MIN_INTENT_CONFIDENCE = 0.50
-ESCALATION_MIN_RETRIEVAL_SIMILARITY = 0.25
+# Escalation thresholds: 20th percentiles on a golden-free 2,000-row development pool,
+# by a rule declared before computing them. Traffic sizes, not tuned values (D43).
+ESCALATION_MIN_INTENT_CONFIDENCE = 0.19128133486537377
+ESCALATION_MIN_RETRIEVAL_SIMILARITY = 0.198143
 ESCALATION_MIN_EVIDENCE_COUNT = 2
 RETRIEVAL_TOP_K = 5
