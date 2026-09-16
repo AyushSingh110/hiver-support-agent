@@ -636,7 +636,7 @@ derived data** (D49).
 | `golden/golden_set_v1.csv` | Derived merge of both batches, 248 rows. **Frozen** |
 | `golden/golden_exclusion_ids.txt` | 248 conversation IDs - layer 1 of downstream exclusion |
 | `golden/golden_customer_exclusion_ids.txt` | 248 customer IDs - layer 2. Neither layer catches cross-customer duplicates; see D39 |
-| `golden/retest_r01_blank.csv` | 45 opaque rows for intra-annotator retest. **Frozen**; builder refuses to overwrite |
+| `golden/retest_r01_blank.csv` | Regenerated blinded template for the Phase 5 intent-label retest (45 opaque rows), written by `python -m src.build_retest_batch` during reproduction. **Not rated itself** (the completed labels are `golden/retest_r01_labelled.csv`); **gitignored** in the final submission. The builder refuses to overwrite an existing copy |
 | `human_eval/README.md` | **Hand-written.** Phase 6F rating procedure, blinding, limitations and rules for the rater (D47) |
 | `human_eval/reply_rating_rubric.md` | **Hand-written.** The 1–5 reply-quality rubric, including the claim-safety rules |
 | `human_eval/reply_rating_r01_blank.csv` | 120 blinded responses (40 items × 3 systems). Written by `src/build_reply_rating_batch.py`, which refuses to overwrite it with different content |

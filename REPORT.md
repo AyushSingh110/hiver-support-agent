@@ -16,7 +16,7 @@ nothing. So "good" means, in order:
 2. **Hand anything uncertain to a human**, with a reason a reviewer can audit.
 3. **Be useful when it does answer:** relevant, with a concrete next step, and asking only
    for what is needed.
-4. **Be measurable.** A held-out, leakage-controlled human-labelled set, baselines for every
+4. **Be measurable.** A held-out, leakage-controlled set of manually annotated intent labels, baselines for every
    component, and honest statements of what each number does *not* show.
 
 ## 2. What was deliberately not built
@@ -73,7 +73,8 @@ customer message ──► sanitise ──► intent: TF-IDF + logistic regressi
 
 ## 5. Golden set and leakage controls
 
-- **Labels:** 248 messages labelled by **one annotator** under a 13-label taxonomy (v2):
+- **Labels:** 248 messages whose intent labels were **manually annotated and decided by one
+  annotator** under a 13-label taxonomy (v2):
   - **148 pilot rows (b01), labelled first and relabelled under v2**, whose definitions were
     written after reading them;
   - **100 fresh rows (b02)**, labelled under the frozen v2: **the cleaner independent
@@ -180,13 +181,14 @@ non-golden synthetic cases:
 No judge ever reliably marked invented refunds, policies or other customers' details as
 unsafe (D46).
 
-**Human ratings (round 1 only).** One rater rated 40 sampled golden items × 3 systems with
-a 1–5 rubric: 119 ratings, since one LLM reply was empty (D47, D48). **Read these with
-care:**
+**Reply ratings (round 1 only): single-annotator, developer-made, AI-assisted.** One
+annotator rated 40 sampled golden items × 3 systems on a 1–5 rubric: 119 ratings, since one
+LLM reply was empty (D47, D48). **This is not an independent human evaluation.** Read these
+with care:
 - **The rater is the system's developer, and the ratings were AI-assisted.**
 - Blinding was weak: Baseline B is a fixed sentence and Baseline A repeats evidence item 1.
-- They are **not independent human ratings, not validated, and have no agreement
-  statistic.**
+- They are **not independent human ratings and not validated.** No reply-quality agreement
+  statistic exists. The Phase 5 κ in §5 measures intent labels, not reply ratings.
 - **The blinded retest was built but not completed before submission** (the 72-hour minimum
   gap had not passed).
 
@@ -238,7 +240,7 @@ care:**
     learned from keyword rules, so it partly re-learns the rules.
 - **"95% pass all safety checks"**
   - This counts **absent patterns, not correct replies.**
-  - The human round found unsafe auto-handled replies inside that 95%.
+  - The developer-made reply ratings found unsafe auto-handled replies inside that 95%.
   - The G7 row and Baseline B's 100% are artefacts of how those checks and that baseline
     are built.
 - **"Retrieval 3× better than random"**
@@ -257,7 +259,7 @@ care:**
    blinded retest.**
 2. **Claim detection beyond regex:** a small extraction step that lists every promise, offer
    and procedure in a reply and checks each against the evidence. Evaluate it on the
-   human-flagged cases first.
+   cases flagged in the reply ratings first.
 3. **Prompt schema fix:** remove the intent label from the generation prompt and rerun on
    the development pool. That tests failure mode 3 without touching the golden set.
 4. **Retrieval ablation:** embeddings vs TF-IDF on the development pool, under the same
@@ -281,5 +283,5 @@ care:**
 | All escalation reasons collected; "needs details" ≠ "unsafe" (D45) | a clarifying reply is not escalated for thin evidence |
 | Recorded generations are the run of record; retries logged (6C, D49) | the evaluation measures a fixed, auditable run |
 | The LLM judge dropped after failing its own validation (D46) | no unvalidated score in the headline |
-| Human-rating analysis fixed before rating; chronology disclosed (D47, D48) | the deviations are on the record, not hidden |
+| Reply-rating analysis fixed before rating; chronology disclosed (D47, D48) | the deviations are on the record, not hidden |
 | Data files stored byte-exact (D49) | recorded SHA-256 values hold on any clone |
