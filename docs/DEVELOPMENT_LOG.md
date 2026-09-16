@@ -1943,3 +1943,116 @@ presented as independent human corroboration**; rare intents unstable.
 ### Next step
 
 Phase 6. No classifier, retrieval, generation, escalation or judge work has begun.
+
+
+---
+
+## Phase 6a — Foundations, corpus and intent baselines
+
+**Date:** 2026-09-16
+**Status:** Foundations + baselines measured. Retrieval, generation, escalation and
+judge still pending.
+
+### Environment finding
+
+Ollama already holds **seven downloaded models** (`llama3.1:8b`, `qwen2.5:7b`,
+`mistral:7b`, `qwen3:8b`, `granite3.3:8b`, `llama3.2`). Nothing needs downloading.
+Machine has 15.7 GB RAM and 20 cores, so a 7-8B model runs on CPU. Free disk is
+7.7 GB, which the pre-existing models make a non-issue.
+
+`pytest` is not installed. Rather than add a dependency, tests use stdlib
+`unittest` - consistent with choosing `urllib` over `requests` for the Ollama client.
+
+There is **no `CLAUDE.md`** in this repository; project conventions live in
+`docs/`.
+
+### What was built
+
+| File | Purpose |
+| --- | --- |
+| `src/taxonomy.py` | Frozen 13-label set + deterministic weak-label rules |
+| `src/leakage.py` | One shared `exclude_golden()` used by every downstream step |
+| `src/build_corpus.py` | Retrieval corpus + weak-labelled training set |
+| `src/classify_intent.py` | Baseline 0 (majority) and Baseline 1 (TF-IDF + LogReg) |
+| `tests/test_phase6.py` | 17 tests, stdlib unittest |
+
+### Leakage control cross-validates against Phase 5
+
+The corpus funnel removed exactly what Phase 5 independently measured:
+
+```text
+24,239 customer-rooted AA conversations
+   -61 truncated roots
+    -248 golden conversations
+    -207 same-customer conversations
+      -1 exact normalised-text duplicate
+      -0 near-duplicate (already caught as exact once URLs are stripped)
+= 23,722 eligible
+```
+
+248 + 207 + 1 = 456 matches the Phase 5 leakage report exactly. Two independent
+implementations agreeing is worth more than either alone.
+
+### Measured baselines — golden set never used for fitting
+
+| System | all 248 acc | all 248 macro-F1 | b02 100 acc | b02 100 macro-F1 |
+| --- | --- | --- | --- | --- |
+| Baseline 0, majority class | 0.1169 | 0.0161 | 0.1000 | 0.0140 |
+| Baseline 1, TF-IDF + LogReg | **0.4718** | **0.3581** | **0.4500** | **0.3216** |
+
+TF-IDF + LogReg is roughly **4x** the majority-class accuracy and **22x** its
+macro-F1. Both figures are reported on the independent b02 subset as well, and b02 is
+consistently a little lower - as expected, since b01 contains targeted rows.
+
+### The finding that constrains everything downstream
+
+**Weak labelling covers only 10 of the 13 intents.** `non_support_commentary`,
+`OTHER` and `UNCLEAR` have no rule patterns, because none can be written honestly -
+`OTHER` is by definition "no rule fits", `UNCLEAR` is a property of the message, and
+`non_support_commentary` is defined by the *absence* of a request.
+
+Consequence, measured rather than assumed:
+
+- **41 of 248** golden rows (16.5%) carry a label the classifier can never predict
+- **18 of 100** b02 rows (18%)
+- So the accuracy ceiling for any weak-label-trained classifier is **83.5% / 82.0%**
+
+Per-intent F1 for those three classes is **0.00 by construction, not by failure**.
+This is the single most important limitation of the current classifier and it is a
+direct consequence of choosing rule-based weak supervision (approved as D41 below).
+
+### Where the classifier actually confuses things
+
+```text
+  8  non_support_commentary -> praise_and_compliment
+  7  general_dissatisfaction -> flight_delay
+  6  praise_and_compliment -> staff_and_service_complaint
+  5  general_dissatisfaction -> seating_and_upgrade
+  5  non_support_commentary -> seating_and_upgrade
+```
+
+**Measured:** `general_dissatisfaction` has precision 1.00 but recall 0.17 - when it
+predicts that label it is always right, but it misses 83% of cases, scattering them
+into specific intents. `baggage` and `seating_and_upgrade` show the opposite pattern
+(recall 0.89/0.88, precision 0.42/0.33) - the weak rules over-fire on any mention of
+a bag or a seat.
+
+**Hypothesis, kept separate:** the weak rules key on nouns, so a message that merely
+*mentions* a seat while venting gets pulled to `seating_and_upgrade`. That is a
+hypothesis about cause; confirming it needs the LLM-labelled ablation.
+
+### Tests
+
+17/17 pass in 0.11s, covering: taxonomy/frozen-file consistency, weak-label
+assignment and abstention on ties, all four leakage layers, `assert_isolated` in both
+directions, and that the golden set is still 248 rows with valid labels.
+
+### Still pending in Phase 6
+
+Retrieval, reply generation, grounding checks, escalation policy, LLM judge,
+end-to-end evaluation harness, and the LLM-labelled training ablation. **No
+performance claim is made about any of these because none has been run.**
+
+### Next step
+
+Retrieval over the 23,722-row corpus, measured against a random-evidence baseline.

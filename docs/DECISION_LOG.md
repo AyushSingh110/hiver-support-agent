@@ -1042,4 +1042,35 @@ texts, so generating the artifact early costs nothing provided it stays unopened
 
 ---
 
+## D41 — Rule-based weak supervision, and the ceiling it imposes
+
+**Problem:** The classifier needs training labels, but all 248 human labels are
+reserved for evaluation and may never be trained on.
+
+**Alternatives:** (a) rule-based weak labels; (b) LLM-labelled training data;
+(c) cross-validate on the golden set.
+
+**Chosen:** (a) as the primary, with (b) retained as a planned ablation.
+
+**Why:** (c) is disqualified outright - it would spend the evaluation set on
+training, and 13 classes over 248 rows with `UNCLEAR` at n=4 is too thin regardless.
+(a) is deterministic, costs no inference, introduces no LLM influence into the
+classifier, and produces a baseline that (b) can then be measured against. Choosing
+(b) first would have meant never knowing what the cheap method was worth.
+
+**Tradeoff, measured not estimated:** the rules cover **10 of 13** intents. No
+honest rule can be written for `OTHER` (defined as "no rule fits"), `UNCLEAR` (a
+property of the message) or `non_support_commentary` (defined by the *absence* of a
+request). That puts a hard accuracy ceiling of **83.5%** on all 248 and **82.0%** on
+b02, and forces per-intent F1 of 0.00 for those three classes.
+
+**Consequence:** 9,423 training rows from 23,722 eligible conversations (39.7%
+coverage). Baseline 1 reaches 0.4718 accuracy / 0.3581 macro-F1 against a ceiling of
+0.835 - so roughly half the reachable headroom is unused. Whether an LLM-labelled
+training set closes that gap is exactly what the ablation will measure, and it is a
+more informative experiment than assuming the answer.
+
+---
+
 *Further decisions are appended as later phases are implemented.*
+
