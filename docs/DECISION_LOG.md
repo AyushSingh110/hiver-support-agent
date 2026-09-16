@@ -1223,6 +1223,94 @@ Any code means `escalate`. The reason text is built from fixed templates.
 
 ---
 
+## D46 — LLM-as-judge failed its pre-declared validation; not used on the golden set
+
+**This is a negative validation result, not a judge evaluation.** No LLM judge was run on
+any of the 248 golden rows, and no judge score appears in any evaluation output. The
+deterministic evaluation (`src/evaluate.py`: classifier, retrieval, recorded generation with
+G1–G7, baselines, escalation, human test-retest evidence) remains the primary and only
+evaluation path.
+
+**Problem:** reply quality (relevance, groundedness, helpfulness, information-request
+appropriateness, claim safety) was to be scored by a local LLM judge. No human reply ratings
+exist, so before any golden run the judge had to pass a sanity check on non-golden corpus
+messages with synthetic replies, against expectations and pass rules fixed before each run.
+
+**What was tried**, in order. Every run used golden-free corpus messages only, temperature 0,
+seed 42, JSON mode, and caches isolated from the production cache.
+
+1. **j1: one call for all five dimensions (qwen2.5:7b).** Six synthetic cases. Every clearly
+   bad reply scored 1 on all five dimensions. For example, the bare reply "Noted." got claim
+   safety 1 although it makes no claim. 7 of 8 targeted expectations were met, but only
+   because everything scored 1. No pass rule had been declared for this first check; the
+   failure was that one poor property pulled down all the others. Determinism probe
+   (10 items, cache bypassed): 7/10 byte-identical outputs, 10/10 identical scores.
+2. **j2: one call, prompt stating the dimensions are independent (qwen2.5:7b).** Nine new
+   cases and a pre-declared four-part rule. **Failed:**
+   - on-topic replies with unsupported claims still got relevance 1;
+   - an intrusive information request scored 1 on every dimension.
+
+   Claim-free replies now kept claim safety 5, and 6 of 7 mixed cases showed score spread.
+   Determinism probe: 9/10 byte-identical, 9/10 identical scores.
+3. **j3: one call per dimension, each seeing only the material it needs (qwen2.5:7b).** Ten
+   new cases (set 1) and pre-declared criteria C1–C5. **Failed** C1, C2 and C3 (C4 and C5
+   passed):
+   - replies with invented miles, an invented URL and policy, and another customer's
+     details kept claim safety 4–5;
+   - an information request was scored as an unsafe claim;
+   - relevance was misjudged for short replies;
+   - one output was rejected by the strict parser (a misspelt key).
+
+   Scores no longer pulled each other down. The unchanged j2 cases, rerun as a secondary
+   check, passed the j2 rule, but that rule does not test for low claim safety.
+4. **j3 with qwen3:8b (model substitution; prompts, definitions and C1–C5 unchanged).** Ten
+   new cases (set 2). The request configuration was unchanged: a pre-run format check
+   returned JSON only, with no thinking output. The set-2 *message filters* were tightened
+   twice **before any model call**, because the first selections did not fit the synthetic
+   replies (a hypothetical cancellation, and a lost luggage tag). **Failed** C1, C2, C3 and
+   C5 (C4 passed):
+   - an invented $300 refund, an invented policy and URL, and borrowed customer details all
+     got claim safety 5, one with a rationale saying the refund was "supported";
+   - borrowed details scored groundedness 5;
+   - a request for sensitive data scored 1 on all five dimensions.
+
+   Set 1, rerun under qwen3 as a secondary check, also failed C1–C3.
+
+The j3 determinism probe was implemented but not run, because no j3 configuration passed.
+
+**Evidence** (gitignored reports, identified by SHA-256):
+
+| Report | Prompt | Model | Outcome | SHA-256 |
+| --- | --- | --- | --- | --- |
+| `reports/phase6_judge_sanity.json` | j1 | qwen2.5:7b | all-1 collapse (no pass rule declared) | `7d2270e13e75112c1dc464a7a585810ca7cce5305681d512aa4cb4dd98dea16b` |
+| `reports/phase6_judge_sanity_j2.json` | j2 | qwen2.5:7b | failed | `90252d9cf90a96569850c45856341b8041b1dfae959f80047c47c5d7c0a05db1` |
+| `reports/phase6_judge_sanity_j3.json` | j3, set 1 | qwen2.5:7b | failed (C1–C3) | `b257a7aa710f794e1df375b42e0199e01306cafe24a21c596c534317bd2bccc5` |
+| `reports/phase6_judge_sanity_j3_set2_qwen3_8b.json` | j3, set 2 | qwen3:8b | failed (C1–C3, C5) | `059676f379d2143d63ff86485a7943ddb213a83a056449746ec34384c25f50cd` |
+
+The j1, j2 and j3 prompt texts and their SHA-256 hashes, all sanity sets, and both pass rules
+are kept in `src/judge.py`.
+
+**Alternatives considered:** another prompt revision, which would have been tuning against
+observed outputs; another local model; running the judge anyway and reporting it with a
+caveat; dropping LLM judging.
+
+**Chosen:** stop. The pre-declared rules failed for three prompt designs and two model
+families, on exactly the property that matters most for a support reply: detecting
+unsupported claims. A further revision would be fitting the judge to its own failures.
+
+**Consequence:**
+- No LLM-judge scores are reported for any system.
+- Reply quality beyond the deterministic G1–G7 checks **was not measured**; the write-up
+  must say so. G2 and G3 cover some of what the judge missed (invented URLs, currency
+  amounts, long numbers), but not names or short flight numbers.
+- `src/judge.py` is kept as documented experimental work and is not imported by the
+  evaluation path.
+- The generated evaluation report's line "LLM-judge results are reported separately" is
+  superseded by this entry; no such results exist.
+- A validated measure of reply quality would need human ratings.
+
+---
+
 *Further decisions are appended as later phases are implemented.*
 
 

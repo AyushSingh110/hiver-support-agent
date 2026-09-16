@@ -468,6 +468,45 @@ exist.
 
 ---
 
+### `src/judge.py` 🟡 — experimental, failed validation, not used
+
+**Status:** **Experimental. It failed its pre-declared non-golden validation (D46) and is
+NOT used by the production or evaluation path.** No module imports it, and it has no
+golden-judging entry point. No judge scores exist for the golden set.
+
+**Purpose:** Phase 6E LLM-as-judge for reply quality, kept so the negative result can be
+inspected and reproduced.
+
+**Inputs:** golden-free corpus messages with synthetic replies, through `llm.complete`
+(local Ollama). **Outputs:** `reports/phase6_judge_sanity*.json` and
+`reports/phase6_judge_probe*.json`, written into isolated caches under
+`data/llm_cache_judge_sanity/` and `data/llm_cache_judge_probe/`, never into the production cache.
+
+**Dependencies:** numpy, `src.llm`, `src.generate_reply` (formatting only), `src.retrieve`
+(sanity messages only). Run only with `--sanity-check` or `--determinism-probe`.
+
+#### What it preserves
+
+- **Prompt history.** j3 is the live design: five per-dimension templates, each with its
+  own SHA-256. j1 and j2 are kept as retired constants with their hashes, together with
+  their whole-item parser, so their results can be reproduced.
+- **Validation logic.** The j2 cases and rule, j3 sets 1 and 2 with their C1–C5
+  specifications, and the message-selection filters.
+- **Evaluation machinery that was never used on golden data.** Blinded, shuffled pairing
+  (`build_judge_items`); per-dimension summaries and paired comparisons; the strict parser;
+  one infrastructure retry per call; no retry for malformed output.
+
+#### Functions worth reading
+
+**`isolated_cache` 🟡.** Temporarily points `config.CACHE_DIR` elsewhere.
+`llm.complete` writes a cache entry even when the cache is bypassed, so without this a
+probe would overwrite production entries.
+
+**`evaluate_j3_criteria` 🟡.** The pre-declared C1–C5 rule, identical for every case set.
+A dimension that failed to parse counts as failing the criterion that uses it.
+
+---
+
 ## Hand-authored files, not generated
 
 | File | Nature |
