@@ -403,6 +403,71 @@ reports deliberately avoid dumping full tweet text.
 
 ---
 
+### `src/escalate.py` 🔴
+
+**Purpose:** Phase 6D. Decide `auto_handle` or `escalate` for one message, with
+reason codes. Runs after classification, retrieval, generation and G1–G7.
+
+**Inputs:** an `EscalationSignals` value and a `Thresholds` value. **Outputs:** a dict
+with `decision`, `reason_codes`, `informational_codes`, `reason`, the signals and
+thresholds used, and `policy_version`.
+
+**Dependencies:** `src.config`, `src.taxonomy`. **No model, no file I/O, no network,
+no golden data.** A test enforces this.
+
+#### Functions that matter
+
+**`decide` 🔴.** Evaluates all seven rules without short-circuiting, so the record
+lists every reason. Codes are emitted in the fixed `RULE_ORDER`, and the reason text is
+built from fixed templates, so identical input gives identical output.
+
+**`EscalationSignals` 🔴 — validation is part of the method.** It rejects intents the
+classifier cannot predict (`OTHER`, `UNCLEAR`, `non_support_commentary`) and unknown
+grounding codes. It also forbids `needs_more_information` and `evidence_used` on an
+unparsed reply, so rules that need parsed fields cannot run on defaults. It has no
+gold-label field.
+
+**`build_signals` 🟡.** Converts a retrieval list and a `generate_llm` result into
+signals. It drops the `needs_more_information=False` that `generate_llm` fills in on a
+parse failure; otherwise that value would read as "the reply gave a substantive answer".
+
+**`HUMAN_REVIEW_POLICY_INTENTS` 🔴.** A deliberate system policy, not learned from the
+data. It is kept local to this module, and `taxonomy.ALWAYS_ESCALATE` is not used.
+
+---
+
+### `src/calibrate_escalation.py` 🔴
+
+**Purpose:** Phase 6D. Produce `T_conf` and `T_sim` by the pre-declared rule: the
+20th percentile of each on a fixed development pool.
+
+**Inputs:** retrieval corpus, weak training set, and golden **identifier columns only**
+(read to prove they are absent). **Output:** `reports/phase6_escalation_calibration.json`.
+
+**Dependencies:** numpy, pandas, sklearn, `src.classify_intent`, `src.retrieve`,
+`src.escalate`, `src.leakage`. **No LLM, no network.**
+
+#### Functions that matter
+
+**`sample_pool` 🟡.** Draws 2,000 conversations uniformly from the golden-free corpus
+with seed 42. A SHA-256 of the sorted IDs is recorded so the pool can be reproduced.
+
+**`intent_confidence` 🔴.** Pool rows that are in the weak training set get
+out-of-fold probabilities (5 stratified folds). Otherwise the classifier would be scoring its own training data and look
+more confident than it is. All other rows use the fitted model. The two populations
+have very different confidence distributions, and both are reported.
+
+**`verify_no_golden` 🔴.** Checks the corpus, training set and pool against the golden
+set's conversation and customer IDs and both exclusion files, and raises an error on any match.
+
+**`confirm_strict_comparison` 🟡.** Calls `decide()` exactly at each threshold and just
+below it. This confirms equality does not fire, instead of assuming it.
+
+**The thresholds are traffic sizes, not tuned values.** No escalation outcome labels
+exist.
+
+---
+
 ## Hand-authored files, not generated
 
 | File | Nature |
