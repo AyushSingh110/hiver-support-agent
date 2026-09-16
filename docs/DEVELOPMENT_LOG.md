@@ -1838,3 +1838,108 @@ agreement. Full detail in D40.
 
 Wait for the gap, then label `golden/retest_r01_blank.csv`. No classifier, retrieval,
 generation, escalation or judge work until the agreement analysis is done.
+
+
+---
+
+## Phase 5g — Intra-annotator short-gap test-retest
+
+**Date:** 2026-09-16
+**Status:** Complete. Result is provisional.
+
+### The gap was 12-14 hours, not 7 days
+
+The plan specified a retest on or after 2026-09-22. The originals were labelled on
+2026-09-15 (b01 20:26, b02 22:43) and the retest was completed **2026-09-16 10:36**,
+an overnight gap. The 45 labels are kept and analysed, but every report describes
+this as a **short-gap** test-retest and states the actual interval. The seven-day
+figure is not used anywhere.
+
+This matters because the gap is the whole mechanism: it is what forces the annotator
+to re-derive a decision rather than recall it. Overnight, on 45 items seen the
+previous evening, a meaningful share of agreement may be memory.
+
+### Results
+
+| Metric | Value |
+| --- | --- |
+| Raw agreement | **84.4%** (38/45) |
+| Cohen's kappa | **0.8281** |
+| 95% bootstrap CI | **[0.7039, 0.9254]** |
+
+Bootstrap: 2,000 percentile resamples, seed 44, all 2,000 usable, no degenerate
+draws. The interval spans roughly 0.22 - wide, because 45 items across 13 classes
+cannot pin kappa down. **The interval is the honest result; the point estimate alone
+would overstate precision.**
+
+No judgement is recorded on whether this is "good". It is a short-gap upper bound on
+a single annotator's self-consistency, and it is not evidence about agreement between
+different people.
+
+### Where the 7 disagreements fell
+
+Every disagreement pair occurred exactly once - no systematic confusion:
+
+```text
+booking_fees_and_fare_rules -> flight_cancellation_rebooking
+general_dissatisfaction     -> flight_delay
+boarding_and_gate           -> general_dissatisfaction
+flight_delay                -> flight_cancellation_rebooking
+baggage                     -> general_dissatisfaction
+OTHER                       -> booking_fees_and_fare_rules
+UNCLEAR                     -> general_dissatisfaction
+```
+
+**Measured observation:** 3 of the 7 moved *into* `general_dissatisfaction` from a
+more specific intent, and 2 involved the `flight_delay` / `flight_cancellation`
+boundary that v2 added a tie-breaker for.
+
+**Hypothesis, kept separate from the observation:** `general_dissatisfaction` may act
+as a fallback when a message carries strong negative sentiment alongside a weak
+actionable signal. That is a hypothesis about *why*, not a finding, and the sample is
+far too small to support it. **No taxonomy change was made.**
+
+### Per-intent
+
+Assessable (n >= 3): `loyalty_and_lounge` 6/6, `praise_and_compliment` 5/5,
+`seating_and_upgrade` 3/3, `non_support_commentary` 3/3 all at 100%; `baggage`,
+`booking_fees_and_fare_rules`, `general_dissatisfaction` at 80%; `flight_delay` and
+`OTHER` at 75%.
+
+Not assessable (n < 3): `boarding_and_gate` (2), `flight_cancellation_rebooking` (1),
+`staff_and_service_complaint` (1), `UNCLEAR` (1). These are reported with their
+counts and explicitly marked, rather than given a percentage that would read as
+evidence.
+
+### Confidence
+
+Agreement by **original** confidence: `high` 32/37 = 86.5%, `medium` 6/8 = 75.0%.
+Directionally sensible - lower-confidence labels changed more often - but n=8 is too
+small to treat as a finding. No `low`-confidence items were drawn.
+
+Retest confidence distribution was 43 high / 2 medium, against 37 high / 8 medium
+originally. The annotator was **more confident on the second pass**, which is itself
+consistent with recall rather than independent re-derivation. Retest confidence was
+not used in any agreement calculation.
+
+### Validation
+
+The labelled file was renamed from the blank rather than copied, so the blank no
+longer existed. The blank was **reconstructed deterministically** from the frozen
+golden set with seed 44 and compared: 45/45 identical texts, identical ids, identical
+ordering. The key maps 1:1 onto 45 distinct golden rows. No forbidden identifier
+column was present in the labelled file.
+
+All five frozen artifacts verified byte-identical before and after. Output
+deterministic across two runs. Temporary reconstruction deleted.
+
+### Limitations recorded in the report
+
+One annotator; 45 examples; ~12-14 hour gap; residual memory inflates agreement; the
+statistic is provisional; reviewer suggestions may have influenced some original
+labels and may recur at retest; **later LLM-judge agreement therefore must not be
+presented as independent human corroboration**; rare intents unstable.
+
+### Next step
+
+Phase 6. No classifier, retrieval, generation, escalation or judge work has begun.
